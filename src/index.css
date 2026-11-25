@@ -1,1 +1,41 @@
 @import "tailwindcss";
+@import "./journal.css";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Настройка слоёв для круговой волны View Transitions API */
+::view-transition-group(root) {
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+  display: block;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* Мгновенная фиксация цветов при снятии скриншота для круговой волны */
+html.vt-no-transitions,
+html.vt-no-transitions *,
+html.vt-no-transitions *::before,
+html.vt-no-transitions *::after {
+  transition: none !important;
+}
+
+/* Фолбэк плавной смены темы для браузеров без поддержки View Transitions API */
+html.theme-transition,
+html.theme-transition *,
+html.theme-transition *::before,
+html.theme-transition *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow !important;
+  transition-duration: 420ms !important;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1) !important;
+}

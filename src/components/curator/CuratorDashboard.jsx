@@ -1,35 +1,52 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Users,
-  AlertTriangle,
-  Award,
-  Clock,
-  FileSpreadsheet,
-  Download,
-  Eraser,
-  CheckCircle2,
-  Calendar,
-  RotateCcw
-} from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { mockStudents, mockGrades, mockLessons, currentUser } from '../../mocks/initialData';
 import ScheduleWidget from '../dashboard/ScheduleWidget';
 
-// Типы причин согласно Форме №6 ВГТК
 const ABSENCE_TYPES = [
-  { code: 'Б', label: 'Больничный (Б)', color: 'bg-sky-100 text-sky-800 border-sky-300', isExcused: true },
-  { code: 'О', label: 'Объяснительная (О)', color: 'bg-indigo-100 text-indigo-800 border-indigo-300', isExcused: true },
-  { code: 'З', label: 'Заявление (З)', color: 'bg-violet-100 text-violet-800 border-violet-300', isExcused: true },
-  { code: 'К', label: 'Мероприятия (К)', color: 'bg-emerald-100 text-emerald-800 border-emerald-300', isExcused: true },
-  { code: 'Н/У', label: 'Неуважительная (Н/У)', color: 'bg-red-100 text-red-800 border-red-300', isExcused: false },
-  { code: 'Сп', label: 'Свободное посещение (Сп)', color: 'bg-amber-100 text-amber-800 border-amber-300', isFree: true },
+  {
+    code: 'Б',
+    label: 'Больничный (Б)',
+    color: 'bg-sky-100 dark:bg-sky-500/20 text-sky-900 dark:text-sky-300 border-sky-300 dark:border-sky-500/30',
+    isExcused: true
+  },
+  {
+    code: 'О',
+    label: 'Объяснительная (О)',
+    color: 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/30',
+    isExcused: true
+  },
+  {
+    code: 'З',
+    label: 'Заявление (З)',
+    color: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30',
+    isExcused: true
+  },
+  {
+    code: 'К',
+    label: 'Мероприятия (К)',
+    color: 'bg-teal-100 dark:bg-teal-500/20 text-teal-900 dark:text-teal-300 border-teal-300 dark:border-teal-500/30',
+    isExcused: true
+  },
+  {
+    code: 'Н/У',
+    label: 'Неуважительная (Н/У)',
+    color: 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30',
+    isExcused: false
+  },
+  {
+    code: 'Сп',
+    label: 'Свободное посещение (Сп)',
+    color: 'bg-stone-200 dark:bg-zinc-700/60 text-stone-800 dark:text-zinc-200 border-stone-400 dark:border-zinc-600',
+    isFree: true
+  },
 ];
 
 const HOURS_PRESETS = [1, 2, 3, 4, 6, 8];
 
 export default function CuratorDashboard() {
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'form6'
+  const [activeTab, setActiveTab] = useState('overview');
   
-  // Настройки шапки Формы №6
   const [monthName, setMonthName] = useState('октябрь');
   const [year, setYear] = useState('2026');
   const [course, setCourse] = useState(currentUser.course || 3);
@@ -37,7 +54,6 @@ export default function CuratorDashboard() {
   const [deptHead, setDeptHead] = useState(currentUser.departmentHead || 'Н.Е. Дасько');
   const [curatorName, setCuratorName] = useState(currentUser.curatorShortName || 'И.И. Иванов');
 
-  // Загружаем актуальные данные журналов из localStorage
   const [students] = useState(() => {
     try {
       const saved = localStorage.getItem('vgtk_students');
@@ -65,15 +81,11 @@ export default function CuratorDashboard() {
     }
   });
 
-  // Инструмент разметки куратора
   const [selectedReason, setSelectedReason] = useState('Б');
-  // 'auto' — менять только причину, сохраняя посчитанные часы; число — принудительно задать указанное количество часов
   const [hoursMode, setHoursMode] = useState('auto');
   const [customHoursInput, setCustomHoursInput] = useState(2);
-  const [toolAction, setToolAction] = useState('stamp'); // 'stamp' | 'eraser' | 'resetToJournal'
+  const [toolAction, setToolAction] = useState('stamp');
 
-  // Переопределения куратора (хранятся в localStorage):
-  // ключ `${studentId}_${day}` -> { reason: 'Б'|'О'|'З'|'К'|'Н/У'|'Сп', customHours: number | null, cleared: boolean }
   const [curatorOverrides, setCuratorOverrides] = useState(() => {
     try {
       const saved = localStorage.getItem('vgtk_form6_overrides');
@@ -89,11 +101,10 @@ export default function CuratorDashboard() {
 
   const daysInMonth = Array.from({ length: 31 }, (_, i) => i + 1);
 
-  // Считаем часы пропусков за каждый день напрямую из предметных журналов (1 «Н» = 1 ак. час)
   const journalHoursMap = {};
-  grades.forEach(g => {
+  grades.forEach((g) => {
     if (g.attendance === 'ABSENT') {
-      const lesson = lessons.find(l => l.id === g.lessonId);
+      const lesson = lessons.find((l) => l.id === g.lessonId);
       const day = lesson?.day || parseInt(lesson?.date?.split('.')[0], 10);
       if (day) {
         const key = `${g.studentId}_${day}`;
@@ -102,16 +113,12 @@ export default function CuratorDashboard() {
     }
   });
 
-  // Получаем итоговое состояние ячейки (объединяем часы из журнала и правки куратора)
   const getCellEntry = (studentId, day) => {
     const key = `${studentId}_${day}`;
     const journalHours = journalHoursMap[key] || 0;
     const override = curatorOverrides[key];
 
-    if (override?.cleared) {
-      return null;
-    }
-
+    if (override?.cleared) return null;
     if (override?.reason === 'Сп') {
       return { reason: 'Сп', hours: 0, journalHours, isManualHours: false };
     }
@@ -121,58 +128,47 @@ export default function CuratorDashboard() {
         ? Number(override.customHours)
         : journalHours;
 
-    if (effectiveHours <= 0) {
-      return null;
-    }
+    if (effectiveHours <= 0) return null;
 
     return {
       reason: override?.reason || 'Н/У',
       hours: effectiveHours,
       journalHours,
-      isManualHours: override?.customHours !== undefined && override?.customHours !== null && override.customHours !== journalHours
+      isManualHours:
+        override?.customHours !== undefined &&
+        override?.customHours !== null &&
+        override.customHours !== journalHours
     };
   };
 
-  // Обработка клика куратора по ячейке дня в Форме №6
   const handleCellClick = (studentId, day) => {
     const key = `${studentId}_${day}`;
     const currentEntry = getCellEntry(studentId, day);
     const journalHours = journalHoursMap[key] || 0;
 
-    setCuratorOverrides(prev => {
+    setCuratorOverrides((prev) => {
       const updated = { ...prev };
-
-      // 1. Ластик (полная очистка ячейки)
       if (toolAction === 'eraser') {
         updated[key] = { cleared: true };
         return updated;
       }
-
-      // 2. Сброс ячейки к исходным часам из предметного журнала
       if (toolAction === 'resetToJournal') {
         delete updated[key];
         return updated;
       }
-
-      // 3. Свободное посещение (Сп)
       if (selectedReason === 'Сп') {
         updated[key] = { reason: 'Сп', customHours: null, cleared: false };
         return updated;
       }
-
-      // 4. Режим «Авто (только причина)» — сохраняем уже посчитанные в ячейке часы
       if (hoursMode === 'auto') {
         const existingHours = currentEntry?.hours || journalHours;
         updated[key] = {
           reason: selectedReason,
-          // Если в ячейке уже были часы (из журнала или ручные), сохраняем их; если клетка была пустой — ставим 2 ч.
           customHours: existingHours > 0 ? existingHours : 2,
           cleared: false
         };
         return updated;
       }
-
-      // 5. Ручной режим часов — ставим и выбранную причину, и выбранное количество часов
       const targetHours = Number(customHoursInput) || 2;
       updated[key] = {
         reason: selectedReason,
@@ -183,10 +179,9 @@ export default function CuratorDashboard() {
     });
   };
 
-  // Расчет итогов по студенту для Формы №6
   const getForm6StudentTotals = (studentId) => {
     const totals = { 'Б': 0, 'О': 0, 'З': 0, 'К': 0, excusedTotal: 0, 'Н/У': 0, grandTotal: 0 };
-    daysInMonth.forEach(day => {
+    daysInMonth.forEach((day) => {
       const entry = getCellEntry(studentId, day);
       if (!entry || entry.reason === 'Сп') return;
       const h = Number(entry.hours) || 0;
@@ -201,7 +196,6 @@ export default function CuratorDashboard() {
     return totals;
   };
 
-  // Итоги «Всего по группе» для нижней строки Формы №6
   const groupForm6Totals = students.reduce(
     (acc, st) => {
       const t = getForm6StudentTotals(st.id);
@@ -217,18 +211,15 @@ export default function CuratorDashboard() {
     { 'Б': 0, 'О': 0, 'З': 0, 'К': 0, excusedTotal: 0, 'Н/У': 0, grandTotal: 0 }
   );
 
-  // Генерация и скачивание файла «Форма №6» в формате Word (.doc)
-  // В клетках дней выводятся ТОЛЬКО часы без букв (или «Сп» для свободного посещения)
   const handleDownloadForm6 = () => {
-    const daysHeaders = daysInMonth.map(d => `<th style="width:20px; font-size:9pt;">${d}</th>`).join('');
+    const daysHeaders = daysInMonth.map((d) => `<th style="width:20px; font-size:9pt;">${d}</th>`).join('');
     
     const rowsHtml = students.map((st, idx) => {
       const t = getForm6StudentTotals(st.id);
-      const dayCells = daysInMonth.map(d => {
+      const dayCells = daysInMonth.map((d) => {
         const entry = getCellEntry(st.id, d);
         let text = '';
         if (entry) {
-          // Только число часов без буквы причины (либо «Сп» для свободного посещения)
           text = entry.reason === 'Сп' ? 'Сп' : String(entry.hours);
         }
         return `<td style="text-align:center; font-size:9pt;">${text}</td>`;
@@ -344,13 +335,12 @@ export default function CuratorDashboard() {
     URL.revokeObjectURL(url);
   };
 
-  // Статистика успеваемости для вкладки обзора
-  const studentsStats = students.map(student => {
-    const studentGrades = grades.filter(g => g.studentId === student.id);
+  const studentsStats = students.map((student) => {
+    const studentGrades = grades.filter((g) => g.studentId === student.id);
     const numericGrades = studentGrades
-      .filter(g => g.attendance !== 'ABSENT' && g.grade !== null && g.grade !== '')
-      .map(g => Number(g.grade))
-      .filter(val => !isNaN(val));
+      .filter((g) => g.attendance !== 'ABSENT' && g.grade !== null && g.grade !== '')
+      .map((g) => Number(g.grade))
+      .filter((val) => !isNaN(val));
 
     const avg = numericGrades.length > 0
       ? (numericGrades.reduce((sum, val) => sum + val, 0) / numericGrades.length).toFixed(2)
@@ -368,168 +358,114 @@ export default function CuratorDashboard() {
   });
 
   const totalStudents = students.length;
-  const groupNumericGrades = studentsStats.map(s => s.avg).filter(val => val > 0);
+  const groupNumericGrades = studentsStats.map((s) => s.avg).filter((val) => val > 0);
   const groupAvg = groupNumericGrades.length > 0
     ? (groupNumericGrades.reduce((sum, val) => sum + val, 0) / groupNumericGrades.length).toFixed(2)
     : '0.00';
 
-  const riskStudents = studentsStats.filter(s => s.unexcusedHours >= 4 || (s.avg > 0 && s.avg < 5));
+  const riskStudents = studentsStats.filter((s) => s.unexcusedHours >= 4 || (s.avg > 0 && s.avg < 5));
 
   return (
-    <div className="p-6 md:p-8 max-w-[1440px] mx-auto space-y-6">
-      {/* Шапка кураторской панели */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-xs">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Кураторский дашборд: группа {groupName}</h1>
-          <p className="text-gray-500 text-sm mt-0.5">
-            ВГТК • Автоматический сбор пропусков из журналов и формирование «Формы №6»
-          </p>
+    <div className="space-y-6">
+      <header className="page-heading">
+        <div><p className="section-kicker">Кабинет куратора</p><h1>Группа {groupName}</h1></div>
+        <div className="section-tabs" role="group" aria-label="Раздел кабинета">
+          <button aria-pressed={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>Обзор группы</button>
+          <button aria-pressed={activeTab === 'form6'} onClick={() => setActiveTab('form6')}>Форма № 6</button>
         </div>
-
-        <div className="inline-flex bg-gray-100 p-1.5 rounded-xl self-start md:self-center">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'overview'
-                ? 'bg-white text-blue-600 shadow-xs'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Calendar size={16} />
-            <span>Обзор и расписание</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('form6')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${
-              activeTab === 'form6'
-                ? 'bg-white text-blue-600 shadow-xs'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <FileSpreadsheet size={16} />
-            <span>Ведомость «Форма №6»</span>
-          </button>
-        </div>
-      </div>
+      </header>
 
       {activeTab === 'overview' ? (
-        /* ВКЛАДКА 1: ОБЗОР ГРУППЫ И РАСПИСАНИЕ С ПРЕПОДАВАТЕЛЯМИ */
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
-              <div className="p-3 bg-blue-100 text-blue-600 rounded-xl">
-                <Users size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Учащихся в группе</p>
-                <h3 className="text-2xl font-extrabold text-gray-900">{totalStudents}</h3>
-              </div>
-            </div>
+          <dl className="metric-strip">
+            <div><dt>Учащихся в группе</dt><dd>{totalStudents}</dd></div>
+            <div><dt>Средний балл</dt><dd>{groupAvg}</dd></div>
+            <div><dt>Пропущено за месяц</dt><dd>{groupForm6Totals.grandTotal} ч.</dd><small>Без уважительной причины {groupForm6Totals['Н/У']} ч.</small></div>
+          </dl>
 
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
-              <div className="p-3 bg-emerald-100 text-emerald-600 rounded-xl">
-                <Award size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Средний балл группы</p>
-                <h3 className="text-2xl font-extrabold text-gray-900">{groupAvg}</h3>
-              </div>
-            </div>
-
-            <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex items-center gap-4">
-              <div className="p-3 bg-red-100 text-red-600 rounded-xl">
-                <Clock size={24} />
-              </div>
-              <div>
-                <p className="text-sm text-gray-500 font-medium">Пропусков за месяц (Всего / Н/У)</p>
-                <h3 className="text-2xl font-extrabold text-gray-900">
-                  {groupForm6Totals.grandTotal} ч.{' '}
-                  <span className="text-sm font-semibold text-red-600">
-                    (Н/У: {groupForm6Totals['Н/У']} ч.)
-                  </span>
-                </h3>
-              </div>
-            </div>
-          </div>
-
-          <ScheduleWidget isCuratorView={true} groupFilter={groupName} />
+          <ScheduleWidget groupFilter={groupName} />
 
           {riskStudents.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 flex items-start gap-4">
-              <div className="p-2 bg-amber-100 text-amber-700 rounded-xl mt-0.5">
+            <div className="bg-[#F4E8D4] dark:bg-[#22201B] border border-amber-400/60 dark:border-amber-500/40 rounded-sm p-5 flex items-start gap-4">
+              <div className="p-2 bg-amber-400/30 dark:bg-amber-500/20 text-amber-950 dark:text-amber-300 rounded-sm mt-0.5">
                 <AlertTriangle size={20} />
               </div>
               <div>
-                <h4 className="font-bold text-amber-900">Зона внимания куратора</h4>
-                <p className="text-xs text-amber-700 mt-0.5">
+                <h4 className="font-bold text-stone-900 dark:text-amber-200">Зона внимания куратора</h4>
+                <p className="text-xs text-stone-700 dark:text-zinc-300 mt-0.5">
                   Низкий средний балл или неразнесенные неуважительные пропуски:{' '}
-                  <span className="font-semibold">{riskStudents.map(s => s.fullName).join(', ')}</span>.
+                  <span className="font-bold text-rose-900 dark:text-rose-300">{riskStudents.map((s) => s.fullName).join(', ')}</span>.
                 </p>
               </div>
             </div>
           )}
 
-          <div className="bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
-            <div className="p-5 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-              <h3 className="font-bold text-gray-800 text-base">Сводная ведомость учащихся</h3>
+          <div className="bg-[var(--card)] rounded-sm border border-[var(--line)] overflow-hidden transition-colors duration-300">
+            <div className="p-5 border-b border-[var(--line)] bg-[var(--soft)] flex justify-between items-center">
+              <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-base">Сводная ведомость учащихся</h3>
               <button
                 onClick={() => setActiveTab('form6')}
-                className="text-xs font-bold text-blue-600 hover:text-blue-800 cursor-pointer"
+                className="text-xs font-bold text-emerald-900 dark:text-amber-300 hover:text-emerald-700 dark:hover:text-amber-200 cursor-pointer"
               >
-                Перейти к разметке причин в Форме №6 →
+                Открыть форму № 6 →
               </button>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-700 uppercase bg-gray-100 border-b border-gray-200">
+                <thead className="text-xs text-stone-800 dark:text-zinc-200 uppercase bg-[#F5F2EC] dark:bg-[#1E2128] border-b border-[#D8D1C5] dark:border-[#2E333D]">
                   <tr>
-                    <th className="px-5 py-3 font-semibold w-12 text-center">№</th>
-                    <th className="px-5 py-3 font-semibold">ФИО Учащегося</th>
-                    <th className="px-5 py-3 font-semibold text-center">Подгруппа</th>
-                    <th className="px-5 py-3 font-semibold text-center">Средний балл</th>
-                    <th className="px-5 py-3 font-semibold text-center">Уважительные (ч.)</th>
-                    <th className="px-5 py-3 font-semibold text-center">Неуважительные Н/У (ч.)</th>
-                    <th className="px-5 py-3 font-semibold text-center">Всего пропусков (ч.)</th>
+                    <th className="px-5 py-3 font-bold w-12 text-center">№</th>
+                    <th className="px-5 py-3 font-bold">ФИО Учащегося</th>
+                    <th className="px-5 py-3 font-bold text-center">Подгруппа</th>
+                    <th className="px-5 py-3 font-bold text-center">Средний балл</th>
+                    <th className="px-5 py-3 font-bold text-center">Уважительные (ч.)</th>
+                    <th className="px-5 py-3 font-bold text-center">Неуважительные Н/У (ч.)</th>
+                    <th className="px-5 py-3 font-bold text-center">Всего пропусков (ч.)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-[#EAE4DC] dark:divide-[#262A32]">
                   {studentsStats.map((student, idx) => (
-                    <tr key={student.id} className="hover:bg-blue-50/30 transition-colors">
-                      <td className="px-5 py-3 text-center text-gray-500">{idx + 1}</td>
-                      <td className="px-5 py-3 font-medium text-gray-900">{student.fullName}</td>
+                    <tr key={student.id} className="hover:bg-[#F3EFE8] dark:hover:bg-[#22262E] transition-colors">
+                      <td className="px-5 py-3 text-center text-stone-500 dark:text-zinc-400">{idx + 1}</td>
+                      <td className="px-5 py-3 font-medium text-stone-900 dark:text-zinc-100">{student.fullName}</td>
                       <td className="px-5 py-3 text-center">
-                        <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                          student.subgroup === 1 ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'
+                        <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                          student.subgroup === 1
+                            ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30'
+                            : 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30'
                         }`}>
                           {student.subgroup} п/г
                         </span>
                       </td>
                       <td className="px-5 py-3 text-center font-bold">
                         {student.avg > 0 ? (
-                          <span className={`px-2 py-0.5 rounded text-xs ${
-                            student.avg >= 8 ? 'bg-emerald-100 text-emerald-800' :
-                            student.avg >= 5 ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                          <span className={`px-2 py-0.5 rounded text-xs border ${
+                            student.avg >= 8
+                              ? 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30'
+                              : student.avg >= 5
+                                ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border-amber-300 dark:border-amber-500/30'
+                                : 'bg-rose-100 dark:bg-rose-500/20 text-rose-900 dark:text-rose-300 border-rose-300 dark:border-rose-500/30'
                           }`}>
                             {student.avg.toFixed(2)}
                           </span>
                         ) : (
-                          <span className="text-gray-400">—</span>
+                          <span className="text-stone-400 dark:text-zinc-500">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-center font-medium text-emerald-700">
+                      <td className="px-5 py-3 text-center font-bold text-emerald-800 dark:text-emerald-400">
                         {student.excusedHours > 0 ? `${student.excusedHours} ч.` : '0'}
                       </td>
                       <td className="px-5 py-3 text-center">
                         {student.unexcusedHours > 0 ? (
-                          <span className="px-2 py-0.5 rounded bg-red-50 text-red-600 font-bold text-xs border border-red-200">
+                          <span className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold text-xs border border-rose-200 dark:border-rose-500/30">
                             {student.unexcusedHours} ч.
                           </span>
                         ) : (
-                          <span className="text-gray-400">0</span>
+                          <span className="text-stone-400 dark:text-zinc-500">0</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-center font-bold text-gray-800">
+                      <td className="px-5 py-3 text-center font-bold text-stone-900 dark:text-zinc-100">
                         {student.totalHours} ч.
                       </td>
                     </tr>
@@ -540,95 +476,93 @@ export default function CuratorDashboard() {
           </div>
         </div>
       ) : (
-        /* ВКЛАДКА 2: ВЕДОМОСТЬ УЧЁТА ЧАСОВ «ФОРМА №6» */
         <div className="space-y-5">
-          {/* Панель реквизитов ведомости и кнопки экспорта */}
-          <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          {/* Панель реквизитов Формы №6 */}
+          <div className="bg-[var(--card)] p-5 rounded-sm border border-[var(--line)] shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 transition-colors duration-300">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 w-full lg:w-auto">
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Месяц</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Месяц</label>
                 <select
                   value={monthName}
-                  onChange={e => setMonthName(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setMonthName(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 >
-                  {['сентябрь', 'октябрь', 'ноябрь', 'декабрь', 'январь', 'февраль', 'март', 'апрель', 'май', 'июнь'].map(m => (
+                  {['сентябрь', 'октябрь', 'ноябрь', 'декабрь', 'январь', 'февраль', 'март', 'апрель', 'май', 'июнь'].map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Год</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Год</label>
                 <input
                   type="text"
                   value={year}
-                  onChange={e => setYear(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setYear(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Курс</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Курс</label>
                 <input
                   type="number"
                   value={course}
-                  onChange={e => setCourse(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setCourse(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Группа</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Группа</label>
                 <input
                   type="text"
                   value={groupName}
-                  onChange={e => setGroupName(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setGroupName(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Зав. отделением</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Зав. отделением</label>
                 <input
                   type="text"
                   value={deptHead}
-                  onChange={e => setDeptHead(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setDeptHead(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-gray-500 uppercase">Куратор</label>
+                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Куратор</label>
                 <input
                   type="text"
                   value={curatorName}
-                  onChange={e => setCuratorName(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm border border-gray-300 rounded-lg font-medium"
+                  onChange={(e) => setCuratorName(e.target.value)}
+                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
                 />
               </div>
             </div>
 
             <button
               onClick={handleDownloadForm6}
-              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl shadow-sm transition-all cursor-pointer shrink-0"
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#244b3c] hover:bg-emerald-900 text-white text-sm font-bold rounded-sm shadow-sm border border-amber-400/30 transition-all cursor-pointer shrink-0"
             >
-              <Download size={18} />
               <span>Скачать Форму №6 (.doc)</span>
             </button>
           </div>
 
-          {/* Панель быстрой разметки причин и управления часами */}
-          <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs space-y-3">
+          {/* Панель штампа причин и контроля часов */}
+          <div className="bg-[var(--card)] p-4 rounded-sm border border-[var(--line)] shadow-sm space-y-3 transition-colors duration-300">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
-                <CheckCircle2 size={18} className="text-blue-600" />
-                <span className="text-sm font-bold text-gray-800">
-                  1. Выберите причину отсутствия:
+                <CheckCircle2 size={18} className="text-emerald-800 dark:text-amber-300" />
+                <span className="text-sm font-bold text-stone-900 dark:text-zinc-100">
+                  Причина отсутствия
                 </span>
               </div>
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-stone-500 dark:text-zinc-400">
                 В скачанном .doc файле в клетках дней будут стоять только цифры часов (без букв)
               </span>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {ABSENCE_TYPES.map(type => (
+              {ABSENCE_TYPES.map((type) => (
                 <button
                   key={type.code}
                   onClick={() => {
@@ -637,8 +571,8 @@ export default function CuratorDashboard() {
                   }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                     toolAction === 'stamp' && selectedReason === type.code
-                      ? `${type.color} ring-2 ring-blue-500 shadow-xs`
-                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                      ? `${type.color} ring-2 ring-emerald-700 dark:ring-amber-400 shadow-xs`
+                      : 'bg-[#F3EFE8] dark:bg-[#22262E] text-stone-700 dark:text-zinc-300 border-[#D8D1C5] dark:border-[#323844] hover:bg-[#EFECE6] dark:hover:bg-[#2A2F3A]'
                   }`}
                 >
                   {type.label}
@@ -649,12 +583,10 @@ export default function CuratorDashboard() {
                 onClick={() => setToolAction('resetToJournal')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                   toolAction === 'resetToJournal'
-                    ? 'bg-indigo-600 text-white border-indigo-700 ring-2 ring-blue-500'
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    ? 'bg-[#244b3c] text-white border-amber-400/40 ring-2 ring-emerald-700 dark:ring-amber-400'
+                    : 'bg-[#F3EFE8] dark:bg-[#22262E] text-stone-700 dark:text-zinc-300 border-[#D8D1C5] dark:border-[#323844] hover:bg-[#EFECE6] dark:hover:bg-[#2A2F3A]'
                 }`}
-                title="Вернуть ячейке часы и статус из предметного журнала"
               >
-                <RotateCcw size={14} />
                 <span>Часы из журнала</span>
               </button>
 
@@ -662,36 +594,34 @@ export default function CuratorDashboard() {
                 onClick={() => setToolAction('eraser')}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                   toolAction === 'eraser'
-                    ? 'bg-gray-800 text-white border-gray-900 ring-2 ring-blue-500'
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                    ? 'bg-stone-800 dark:bg-zinc-200 text-white dark:text-stone-950 border-stone-900'
+                    : 'bg-[#F3EFE8] dark:bg-[#22262E] text-stone-700 dark:text-zinc-300 border-[#D8D1C5] dark:border-[#323844] hover:bg-[#EFECE6] dark:hover:bg-[#2A2F3A]'
                 }`}
               >
-                <Eraser size={14} />
                 <span>Очистить клетку</span>
               </button>
             </div>
 
-            {/* Блок контроля количества часов */}
             {toolAction === 'stamp' && selectedReason !== 'Сп' && (
-              <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center gap-3">
-                <span className="text-xs font-bold text-gray-700">
-                  2. Контроль количества часов при клике:
+              <div className="pt-3 border-t border-[#EAE4DC] dark:border-[#262A32] flex flex-wrap items-center gap-3">
+                <span className="text-xs font-bold text-stone-700 dark:text-zinc-300">
+                  Количество часов
                 </span>
 
                 <button
                   onClick={() => setHoursMode('auto')}
                   className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                     hoursMode === 'auto'
-                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                      ? 'bg-[#244b3c] text-white border-amber-400/40 shadow-xs'
+                      : 'bg-[#F3EFE8] dark:bg-[#22262E] text-stone-700 dark:text-zinc-300 border-[#D8D1C5] dark:border-[#323844] hover:bg-[#EFECE6] dark:hover:bg-[#2A2F3A]'
                   }`}
                 >
-                  Авто (менять только причину, сохраняя часы)
+                  Сохранить часы из журнала
                 </button>
 
-                <div className="flex items-center gap-1.5 pl-2 border-l border-gray-200">
-                  <span className="text-xs text-gray-500 font-medium">Изменить часы вручную:</span>
-                  {HOURS_PRESETS.map(h => (
+                <div className="flex flex-wrap items-center gap-1.5 pl-2 border-l border-[#D8D1C5] dark:border-[#323844]">
+                  <span className="text-xs text-stone-600 dark:text-zinc-400 font-medium">Указать вручную</span>
+                  {HOURS_PRESETS.map((h) => (
                     <button
                       key={h}
                       onClick={() => {
@@ -700,8 +630,8 @@ export default function CuratorDashboard() {
                       }}
                       className={`w-7 h-7 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                         hoursMode === 'manual' && Number(customHoursInput) === h
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                          : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
+                          ? 'bg-[#244b3c] text-white border-amber-400/40 shadow-xs'
+                          : 'bg-[#FAF8F5] dark:bg-[#22262E] text-stone-700 dark:text-zinc-300 border-[#D8D1C5] dark:border-[#323844] hover:bg-[#EFECE6] dark:hover:bg-[#2A2F3A]'
                       }`}
                     >
                       {h}
@@ -712,33 +642,33 @@ export default function CuratorDashboard() {
                     type="number"
                     min={1}
                     max={16}
+                    aria-label="Количество часов вручную"
                     value={customHoursInput}
                     onFocus={() => setHoursMode('manual')}
-                    onChange={e => {
+                    onChange={(e) => {
                       setHoursMode('manual');
                       setCustomHoursInput(e.target.value);
                     }}
                     className={`w-14 px-2 py-1 text-center text-xs font-bold border rounded-lg outline-none ${
                       hoursMode === 'manual'
-                        ? 'border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/30'
-                        : 'border-gray-200'
+                        ? 'border-emerald-800 dark:border-amber-400 ring-2 ring-emerald-700/20 bg-emerald-50/30 dark:bg-[#262B34] text-stone-900 dark:text-zinc-100'
+                        : 'border-[#D8D1C5] dark:border-[#323844] bg-[#FAF8F5] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100'
                     }`}
-                    title="Ввести своё количество часов"
                   />
-                  <span className="text-xs text-gray-400">ч.</span>
+                  <span className="text-xs text-stone-500 dark:text-zinc-400">ч.</span>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Таблица по образцу Формы №6 */}
-          <div className="bg-white rounded-2xl shadow-xs border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-200 bg-gray-50/70 text-center space-y-0.5">
-              <div className="text-right text-xs font-bold text-gray-500">Форма №6</div>
-              <h3 className="font-bold text-gray-900 text-sm uppercase tracking-wide">
+          {/* Таблица Формы №6 */}
+          <div className="bg-[var(--card)] rounded-sm border border-[var(--line)] overflow-hidden transition-colors duration-300">
+            <div className="p-4 border-b border-[#D8D1C5] dark:border-[#2E333D] bg-[var(--soft)] text-center space-y-0.5">
+              <div className="text-right text-xs font-bold text-stone-500 dark:text-zinc-400">Форма №6</div>
+              <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-sm uppercase tracking-wide">
                 ВЕДОМОСТЬ учёта учебных часов, пропущенных учащимися УО «ВГТК»
               </h3>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-stone-700 dark:text-zinc-300">
                 за <span className="font-bold underline">{monthName}</span> {year} г. • {course} курс группа <span className="font-bold underline">{groupName}</span>
               </p>
             </div>
@@ -746,68 +676,65 @@ export default function CuratorDashboard() {
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse whitespace-nowrap select-none">
                 <thead>
-                  <tr className="bg-gray-100 text-gray-700 border-b border-gray-300">
-                    <th rowSpan={3} className="border-r border-gray-300 px-2 py-2 text-center w-10">№</th>
-                    <th rowSpan={3} className="border-r border-gray-300 px-3 py-2 text-left sticky left-0 bg-gray-100 z-10 min-w-[170px]">
+                  <tr className="bg-[var(--soft)] text-stone-800 dark:text-zinc-200 border-b border-[#D8D1C5] dark:border-[#2E333D]">
+                    <th rowSpan={3} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center w-10">№</th>
+                    <th rowSpan={3} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-3 py-2 text-left sticky left-0 bg-[var(--soft)] z-10 min-w-[170px]">
                       ФИО учащегося
                     </th>
-                    <th colSpan={31} className="border-r border-b border-gray-300 py-1.5 text-center font-bold">
+                    <th colSpan={31} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1.5 text-center font-bold">
                       Число месяца
                     </th>
-                    <th colSpan={6} className="border-r border-b border-gray-300 py-1.5 text-center font-bold bg-blue-50/60">
+                    <th colSpan={6} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1.5 text-center font-bold bg-[#E5DFD3] dark:bg-[#262B34]">
                       Пропуски (часов)
                     </th>
-                    <th rowSpan={3} className="px-2.5 py-2 text-center font-extrabold bg-gray-200/70 text-gray-900">
+                    <th rowSpan={3} className="px-2.5 py-2 text-center font-extrabold bg-[#DED6C6] dark:bg-[#2A2F3A] text-stone-900 dark:text-zinc-100">
                       ВСЕГО
                     </th>
                   </tr>
-                  <tr className="bg-gray-100 text-gray-700 border-b border-gray-300">
-                    {daysInMonth.map(day => (
-                      <th key={day} rowSpan={2} className="border-r border-gray-200 px-1 py-1 text-center font-semibold min-w-[36px]">
+                  <tr className="bg-[#F5F2EC] dark:bg-[#1E2128] text-stone-800 dark:text-zinc-200 border-b border-[#D8D1C5] dark:border-[#2E333D]">
+                    {daysInMonth.map((day) => (
+                      <th key={day} rowSpan={2} className="border-r border-[var(--line)] px-1 py-1 text-center font-bold min-w-[36px]">
                         {day}
                       </th>
                     ))}
-                    <th colSpan={5} className="border-r border-b border-gray-300 py-1 text-center font-bold bg-emerald-50/70 text-emerald-900">
+                    <th colSpan={5} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1 text-center font-bold bg-emerald-100/60 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-300">
                       Уважительные
                     </th>
-                    <th rowSpan={2} className="border-r border-gray-300 px-2 py-1 text-center font-bold bg-red-50/70 text-red-800">
+                    <th rowSpan={2} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-bold bg-rose-100/60 dark:bg-rose-950/40 text-rose-900 dark:text-rose-300">
                       Н/У
                     </th>
                   </tr>
-                  <tr className="bg-gray-50 text-gray-700 border-b border-gray-300">
-                    <th className="border-r border-gray-300 px-2 py-1 text-center font-bold">Б</th>
-                    <th className="border-r border-gray-300 px-2 py-1 text-center font-bold">О</th>
-                    <th className="border-r border-gray-300 px-2 py-1 text-center font-bold">З</th>
-                    <th className="border-r border-gray-300 px-2 py-1 text-center font-bold">К</th>
-                    <th className="border-r border-gray-300 px-2 py-1 text-center font-extrabold bg-emerald-100/60">Всего</th>
+                  <tr className="bg-[#F5F2EC] dark:bg-[#1E2128] text-stone-800 dark:text-zinc-200 border-b border-[#D8D1C5] dark:border-[#2E333D]">
+                    <th className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-bold">Б</th>
+                    <th className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-bold">О</th>
+                    <th className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-bold">З</th>
+                    <th className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-bold">К</th>
+                    <th className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1 text-center font-extrabold bg-emerald-100/80 dark:bg-emerald-900/40">Всего</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-gray-200">
+                <tbody className="divide-y divide-[#EAE4DC] dark:divide-[#262A32]">
                   {students.map((student, idx) => {
                     const totals = getForm6StudentTotals(student.id);
 
                     return (
-                      <tr key={student.id} className="hover:bg-blue-50/20">
-                        <td className="border-r border-gray-200 px-2 py-1.5 text-center text-gray-500">{idx + 1}.</td>
-                        <td className="border-r border-gray-300 px-3 py-1.5 font-medium text-gray-900 sticky left-0 bg-white z-10">
+                      <tr key={student.id} className="hover:bg-[#F3EFE8] dark:hover:bg-[#22262E] group/row transition-colors">
+                        <td className="border-r border-[#EAE4DC] dark:border-[#262A32] px-2 py-1.5 text-center text-stone-500 dark:text-zinc-400">
+                          {idx + 1}.
+                        </td>
+                        <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-3 py-1.5 font-medium text-stone-900 dark:text-zinc-100 sticky left-0 bg-[var(--card)] group-hover/row:bg-[#F3EFE8] dark:group-hover/row:bg-[#22262E] z-10 transition-colors">
                           {student.fullName}
                         </td>
 
-                        {daysInMonth.map(day => {
+                        {daysInMonth.map((day) => {
                           const entry = getCellEntry(student.id, day);
-                          const typeMeta = ABSENCE_TYPES.find(t => t.code === entry?.reason);
+                          const typeMeta = ABSENCE_TYPES.find((t) => t.code === entry?.reason);
 
                           return (
                             <td
                               key={day}
                               onClick={() => handleCellClick(student.id, day)}
-                              title={
-                                entry
-                                  ? `День ${day}: ${entry.reason === 'Сп' ? 'Свободное посещение' : `${entry.hours} ч. (${entry.reason})`}${entry.journalHours ? ` • В журнале: ${entry.journalHours} Н` : ''}`
-                                  : `День ${day}: кликните для разметки`
-                              }
-                              className="border-r border-gray-200 p-0.5 text-center cursor-pointer hover:bg-blue-100/50 transition-colors"
+                              className="border-r border-[#EAE4DC] dark:border-[#262A32] p-0.5 text-center cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-500/15 transition-colors"
                             >
                               {entry ? (
                                 <div className={`w-full py-0.5 px-1 rounded border flex items-center justify-center gap-0.5 ${typeMeta?.color || ''}`}>
@@ -816,7 +743,7 @@ export default function CuratorDashboard() {
                                   ) : (
                                     <>
                                       <span className="text-[11px] font-extrabold leading-none">{entry.hours}</span>
-                                      <span className="text-[8px] font-bold opacity-75 leading-none">{entry.reason}</span>
+                                      <span className="text-[8px] font-bold opacity-80 leading-none">{entry.reason}</span>
                                     </>
                                   )}
                                 </div>
@@ -827,46 +754,46 @@ export default function CuratorDashboard() {
                           );
                         })}
 
-                        <td className="border-r border-gray-200 px-2 py-1.5 text-center font-medium text-sky-800 bg-sky-50/20">
+                        <td className="border-r border-[#EAE4DC] dark:border-[#262A32] px-2 py-1.5 text-center font-bold text-sky-900 dark:text-sky-300 bg-sky-50/30 dark:bg-sky-950/20">
                           {totals['Б'] || ''}
                         </td>
-                        <td className="border-r border-gray-200 px-2 py-1.5 text-center font-medium text-indigo-800 bg-indigo-50/20">
+                        <td className="border-r border-[#EAE4DC] dark:border-[#262A32] px-2 py-1.5 text-center font-bold text-amber-900 dark:text-amber-300 bg-amber-50/30 dark:bg-amber-950/20">
                           {totals['О'] || ''}
                         </td>
-                        <td className="border-r border-gray-200 px-2 py-1.5 text-center font-medium text-violet-800 bg-violet-50/20">
+                        <td className="border-r border-[#EAE4DC] dark:border-[#262A32] px-2 py-1.5 text-center font-bold text-emerald-900 dark:text-emerald-300 bg-emerald-50/30 dark:bg-emerald-950/20">
                           {totals['З'] || ''}
                         </td>
-                        <td className="border-r border-gray-200 px-2 py-1.5 text-center font-medium text-emerald-800 bg-emerald-50/20">
+                        <td className="border-r border-[#EAE4DC] dark:border-[#262A32] px-2 py-1.5 text-center font-bold text-teal-900 dark:text-teal-300 bg-teal-50/30 dark:bg-teal-950/20">
                           {totals['К'] || ''}
                         </td>
-                        <td className="border-r border-gray-300 px-2 py-1.5 text-center font-bold text-emerald-900 bg-emerald-100/40">
+                        <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1.5 text-center font-extrabold text-emerald-950 dark:text-emerald-300 bg-emerald-100/50 dark:bg-emerald-950/40">
                           {totals.excusedTotal || 0}
                         </td>
-                        <td className="border-r border-gray-300 px-2 py-1.5 text-center font-bold text-red-700 bg-red-50/40">
+                        <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-1.5 text-center font-extrabold text-rose-800 dark:text-rose-300 bg-rose-100/40 dark:bg-rose-950/40">
                           {totals['Н/У'] || 0}
                         </td>
-                        <td className="px-2 py-1.5 text-center font-extrabold text-gray-900 bg-gray-100">
+                        <td className="px-2 py-1.5 text-center font-extrabold text-stone-900 dark:text-zinc-100 bg-[var(--soft)]">
                           {totals.grandTotal || 0}
                         </td>
                       </tr>
                     );
                   })}
 
-                  <tr className="bg-gray-100 font-bold text-gray-900 border-t-2 border-gray-300">
-                    <td colSpan={33} className="border-r border-gray-300 px-4 py-2 text-right">
+                  <tr className="bg-[var(--soft)] font-bold text-stone-900 dark:text-zinc-100 border-t-2 border-[#D8D1C5] dark:border-[#2E333D]">
+                    <td colSpan={33} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-4 py-2 text-right">
                       Всего по группе:
                     </td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center">{groupForm6Totals['Б']}</td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center">{groupForm6Totals['О']}</td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center">{groupForm6Totals['З']}</td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center">{groupForm6Totals['К']}</td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center bg-emerald-100/70 text-emerald-900">
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center">{groupForm6Totals['Б']}</td>
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center">{groupForm6Totals['О']}</td>
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center">{groupForm6Totals['З']}</td>
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center">{groupForm6Totals['К']}</td>
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center bg-emerald-100/70 dark:bg-emerald-950/50 text-emerald-950 dark:text-emerald-300">
                       {groupForm6Totals.excusedTotal}
                     </td>
-                    <td className="border-r border-gray-300 px-2 py-2 text-center bg-red-100/70 text-red-800">
+                    <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center bg-rose-100/70 dark:bg-rose-950/50 text-rose-900 dark:text-rose-300">
                       {groupForm6Totals['Н/У']}
                     </td>
-                    <td className="px-2 py-2 text-center bg-gray-200 text-gray-900">
+                    <td className="px-2 py-2 text-center bg-[#DED6C6] dark:bg-[#2A2F3A] text-stone-950 dark:text-zinc-100">
                       {groupForm6Totals.grandTotal}
                     </td>
                   </tr>
@@ -874,8 +801,8 @@ export default function CuratorDashboard() {
               </table>
             </div>
 
-            <div className="p-4 bg-gray-50 border-t border-gray-200 flex flex-col md:flex-row justify-between gap-4 text-xs text-gray-600">
-              <div className="space-x-6 font-medium text-gray-800">
+            <div className="p-4 bg-[#F5F2EC] dark:bg-[#1E2128] border-t border-[var(--line)] flex flex-col md:flex-row justify-between gap-4 text-xs text-stone-600 dark:text-zinc-400">
+              <div className="space-x-6 font-medium text-stone-800 dark:text-zinc-200">
                 <span>Зав. отделением: __________________ <b>{deptHead}</b></span>
                 <span>Куратор: __________________ <b>{curatorName}</b></span>
               </div>

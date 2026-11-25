@@ -1,0 +1,157 @@
+:root {
+  --paper: #faf9f5;
+  --card: #fffefa;
+  --ink: #222c29;
+  --muted: #5c6861;
+  --green: #204f40;
+  --soft: #e9eee6;
+  --line: #cdd3c9;
+  --accent: #a4422b;
+  --serif: "PT Serif", Georgia, "Times New Roman", serif;
+}
+.dark {
+  --paper: #161d1b;
+  --card: #1c2522;
+  --ink: #ebeee7;
+  --muted: #b0bdb3;
+  --green: #afe0c3;
+  --soft: #283a31;
+  --line: #445248;
+  --accent: #eca88d;
+}
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: "Segoe UI", Arial, sans-serif; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.skip-link { position: fixed; left: 1rem; top: -5rem; padding: .6rem 1rem; background: var(--paper); z-index: 100; }
+.skip-link:focus { top: 1rem; }
+html { scroll-padding-top: 5.5rem; }
+.masthead { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid var(--line); background: var(--card); }
+.masthead-inner, .workspace { width: min(1320px, 92%); margin-inline: auto; }
+.masthead-inner { display: flex; align-items: center; min-height: 78px; gap: clamp(20px, 4vw, 68px); }
+.college-brand { display: inline-flex; align-items: center; gap: 12px; margin-right: auto; }
+.college-brand img { width: 34px; height: auto; flex: none; }
+.college-brand > span { font: 600 23px/1.2 var(--serif); letter-spacing: -.035em; }
+.college-brand small { display: block; margin-top: 3px; font: 11px/1.3 "Segoe UI", Arial, sans-serif; letter-spacing: 0; color: var(--muted); }
+.role-nav { display: flex; align-self: stretch; gap: clamp(14px, 2.5vw, 36px); }
+.role-nav a { position: relative; align-content: center; font-size: 14px; color: var(--muted); }
+.role-nav a[aria-current] { color: var(--green); font-weight: 650; }
+.role-nav a[aria-current]::after { content: ""; position: absolute; bottom: -1px; left: 0; right: 0; height: 3px; background: var(--green); }
+.role-nav a:hover, .theme-control:hover { color: var(--green); }
+.theme-control { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); min-height: 42px; cursor: pointer; }
+.theme-swatch { display: block; width: 15px; aspect-ratio: 1; border: 1.5px solid currentColor; border-radius: 50%; background: linear-gradient(90deg, currentColor 50%, transparent 50%); }
+.workspace { padding: clamp(24px, 3vw, 44px) 0 64px; }
+.journal-cover { position: relative; isolation: isolate; display: flex; align-items: center; overflow: hidden; min-height: clamp(185px, 16vw, 220px); background: #1c4238; color: #fcf6e7; }
+.cover-caption { padding: 26px clamp(25px, 3.5vw, 58px); max-width: 70%; }
+.section-kicker { font-size: 11px; font-weight: 650; letter-spacing: .13em; text-transform: uppercase; }
+.cover-caption .section-kicker { color: #c8dbba; }
+.journal-cover h1, .page-heading h1 { margin: 10px 0 12px; font: 400 clamp(39px, 4.6vw, 72px)/1.05 var(--serif); letter-spacing: -.048em; }
+.cover-name { color: #e1e6da; font-size: 15px; }
+.register-drawing { position: absolute; z-index: -1; inset: 0 0 0 auto; width: 32%; overflow: hidden; background-image: linear-gradient(#c3dfc712 1px, transparent 1px),linear-gradient(90deg,#c3dfc712 1px,transparent 1px); background-size: 20px 20px; mask-image: linear-gradient(90deg,transparent,#000 14%); }
+.book-block { position: absolute; width: 78%; height: 72%; left: 12%; top: 15%; transform: rotate(-13deg) skewX(8deg); background: #17352e; border: 1px solid #bec7a0; box-shadow: 2px 3px #304e40, 3px 4px #a8b998, 4px 6px #29493d, 5px 7px #a8b998, 7px 10px #18392f; }
+.book-page { position: absolute; inset-block: -4% 4%; width: 49%; border: 1px solid #b5c5a6; background: #315546; }
+.left-page { left: 1%; border-radius: 4% 19% 0 2% / 4% 7% 0 2%; transform: skewY(3deg); }
+.right-page { right: 1%; border-radius: 16% 4% 3% 0 / 6% 4% 3% 0; transform: skewY(-3deg); }
+.book-page::before { content: ""; position: absolute; inset: 20% 8% 12%; border: 1px solid #b2bf9c; background-image: repeating-linear-gradient(0deg,transparent 0 10px,#9dad8e 10px 11px), repeating-linear-gradient(90deg,transparent 0 16px,#91a587 16px 17px); }
+.left-page::before { border-left-width: 3px; }
+.book-page::after { content: ""; position: absolute; top: 11%; left: 8%; width: 45%; border-top: 2px solid #aebb9d; }
+.ribbon { position: absolute; height: 31%; width: 5%; bottom: -18%; left: 63%; background: #e58b61; clip-path: polygon(0 0,100% 0,100% 100%,50% 78%,0 100%); }
+.teacher-columns { display: grid; grid-template-columns: minmax(0, 2.12fr) minmax(255px, 1fr); gap: clamp(28px, 3.8vw, 64px); margin-top: clamp(28px, 3vw, 45px); align-items: start; }
+.section-heading { font: 400 clamp(28px, 2.5vw, 38px)/1.12 var(--serif); letter-spacing: -.035em; }
+.section-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+.day-switch { display: inline-flex; border: 1px solid var(--line); padding: 3px; border-radius: 4px; background: var(--card); }
+.day-switch button { padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--muted); cursor: pointer; border-radius: 2px; }
+.day-switch button[aria-pressed=true] { color: #fff; background: #285440; }
+.day-switch button[aria-pressed=false]:hover { background: var(--soft); }
+.date-line { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 10px 14px; border-block: 1px solid var(--line); background: var(--soft); }
+.date-line strong { font-weight: 600; color: var(--green); font-size: 15px; }
+.date-line span, .teacher-name, .index-entry a { color: var(--muted); font-size: 13px; }
+.timetable { width: 100%; border-collapse: collapse; }
+.timetable th, .timetable td { text-align: left; }
+.timetable thead th { padding: 10px 12px 8px; font-size: 11px; font-weight: 650; letter-spacing: .065em; text-transform: uppercase; color: var(--muted); }
+.timetable tbody tr { border-block: 1px solid var(--line); }
+.timetable tbody :is(td,th) { padding: 17px 12px; vertical-align: top; font-weight: 400; }
+.timetable .slot-times, .timetable .room { color: var(--ink); font: 500 14px/1.75 "Consolas","Courier New",monospace; font-variant-numeric: tabular-nums; }
+.slot-times { width: 1%; white-space: nowrap; }
+.timetable .room { min-width: 55px; }
+.timetable :is(th,td):last-child { text-align: right; }
+.lesson-meta { font-size: 12px; color: var(--green); font-weight: 600; margin-bottom: 4px; }
+.lesson-name, .lesson-link { font-size: 17px; font-weight: 600; line-height: 1.32; }
+.lesson-link:hover, .index-entry a:hover, .back-link:hover { color: var(--green); text-decoration: underline; text-underline-offset: 3px; }
+.lesson-link span { color: var(--green); font-size: .8em; }
+.teacher-name { margin-top: 5px; }
+.lunch-row { background: color-mix(in srgb,var(--line) 14%,transparent); }
+.lunch-row .lesson-name { font: italic 19px var(--serif); color: var(--muted); }
+.empty-schedule { padding: 16px; color: var(--muted); }
+.journal-index { background: var(--card); border: 1px solid var(--line); border-top: 3px solid var(--green); padding: 20px clamp(18px, 2vw, 32px) 8px; position: relative; }
+.journal-index::after { content: ""; position: absolute; right: 22px; top: -3px; width: 13px; height: 29px; background: #ba6246; clip-path: polygon(0 0,100% 0,100% 100%,50% 77%,0 100%); }
+.journal-index .section-heading { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.index-entry { padding: 17px 0 14px; }
+.index-entry + .index-entry { border-top: 1px solid var(--line); }
+.index-entry h3 { font: 600 17px/1.3 "Segoe UI", Arial, sans-serif; margin-bottom: 5px; }
+.index-entry a { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; }
+.index-entry a > :last-child { color: var(--green); font-size: 18px; line-height: 1; }
+.index-divider { color: var(--line); margin: 0 3px; }
+.page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap; padding: 8px 0 22px; border-bottom: 2px solid var(--green); }
+.page-heading h1 { font-size: clamp(34px, 3.8vw, 54px); }
+.page-heading .section-kicker, .page-heading p, .field-label { color: var(--muted); }
+.field-label { display: grid; gap: 5px; font-size: 13px; }
+.field-label select { background: var(--card); color: var(--ink); border: 1px solid var(--line); padding: 7px 10px; font-size: 15px; }
+.metric-strip { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); background: var(--soft); border-block: 1px solid var(--line); }
+.metric-strip > div { padding: 16px 20px; }
+.metric-strip dt { color: var(--muted); font-size: 13px; }
+.metric-strip dd { margin-top: 4px; font: 400 30px/1.15 var(--serif); }
+.metric-strip small { font: 13px "Segoe UI",sans-serif; color: var(--muted); }
+.section-tabs { display: flex; flex-wrap: wrap; column-gap: 20px; border-bottom: 1px solid var(--line); }
+.section-tabs button { cursor: pointer; color: var(--muted); padding: 10px 0; border-bottom: 2px solid transparent; font-size: 14px; }
+.section-tabs button[aria-pressed=true] { color: var(--green); font-weight: 650; border-color: var(--green); }
+.back-link { display: inline-block; margin: 0 0 18px; color: var(--green); font-size: 14px; }
+.sheet-heading h1 { font: 400 clamp(29px, 3vw, 46px)/1.1 var(--serif); letter-spacing: -.035em; }
+.sheet-heading .section-kicker { color: var(--muted); margin-bottom: 8px; }
+.sheet-tools { display: flex; flex-wrap: wrap; gap: 7px; margin: 16px 0; }
+.sheet-tools button { padding: 7px 13px; border: 1px solid var(--line); color: var(--green); background: var(--card); font-size: 14px; cursor: pointer; }
+.sheet-tools button:hover { border-color: var(--green); }
+.sheet-tools button[aria-pressed=true], .sheet-tools .primary { color: var(--paper); background: var(--green); }
+@media (max-width: 900px) {
+  .masthead-inner { gap: 18px; }
+  .college-brand small { max-width: 230px; }
+  .teacher-columns { grid-template-columns: minmax(0,1fr) minmax(220px,.53fr); gap: 20px; }
+  .timetable tbody :is(td,th), .timetable thead th { padding-inline: 6px; }
+}
+@media (max-width: 720px) {
+  html { scroll-padding-top: 8.5rem; }
+  .masthead-inner { display: grid; grid-template-columns: 1fr auto; gap: 0 8px; }
+  .college-brand { padding-block: 12px; }
+  .college-brand > span { font-size: 20px; }
+  .role-nav { grid-column: 1/-1; grid-row: 2; gap: 24px; }
+  .role-nav a { padding: 9px 0; }
+  .theme-control { grid-column: 2; grid-row: 1; }
+  .teacher-columns { grid-template-columns: minmax(0,1fr); gap: 26px; }
+  .journal-cover { min-height: 158px; }
+  .cover-caption { padding: 20px; }
+  .journal-cover h1 { font-size: clamp(32px,6vw,43px); }
+  .register-drawing { width: 34%; }
+  .book-block { width: 115%; height: 59%; left: 5%; top: 25%; }
+  .section-head { margin-bottom: 14px; }
+}
+@media (max-width: 440px) {
+  .theme-control > span + span { display: none; }
+  .theme-control { min-width: 36px; justify-content: center; }
+  .timetable .slot-times, .timetable .room { font-size: 12px; }
+  .timetable .room { min-width: 34px; }
+  .lesson-link, .lesson-name { font-size: 15px; }
+  .lesson-meta, .teacher-name { font-size: 12px; }
+  .date-line { padding-inline: 8px; }
+  .cover-name { font-size: 13px; }
+  .metric-strip { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+.register-panel { border: 1px solid var(--line); background: var(--card); }
+.slot-number { margin-right: 7px; color: var(--muted); font-size: 11px; padding-right: 6px; border-right: 1px solid var(--line); }
+.journal-dialog { margin: auto; width: min(28rem, calc(100% - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+.wide-dialog { width: min(42rem, calc(100% - 24px)); }
+.journal-dialog::backdrop { background: rgb(12 25 19 / 60%); }
+@media (max-width: 600px) {
+  .sheet-page .sticky { position: static; }
+  .sheet-page .min-w-\[220px\] { min-width: 150px; }
+  .slot-number { display: block; margin: 0; padding: 0; border: 0; line-height: 1; }
+  .slot-times div + div { margin-top: 5px; }
+}
