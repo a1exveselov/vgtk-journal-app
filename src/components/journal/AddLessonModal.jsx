@@ -1,10 +1,11 @@
 import JournalDialog from '../ui/JournalDialog';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X, AlertTriangle, Check } from 'lucide-react';
 
 import { getLessonTimestamp } from './lessonDate';
 
 export default function AddLessonModal({
+  snapshot,
   onClose,
   onAdd,
   onUpdate,
@@ -13,6 +14,27 @@ export default function AddLessonModal({
   existingLessons = [],
   canModify = true
 }) {
+  const [base, setBase] = useState(snapshot);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
+  const dismiss = () => { if (!pending.current) onClose(); };
+  async function submit(operation) {
+    if (pending.current || error?.code === 'conflict') return;
+    pending.current = true;
+    setSaving(true);
+    try {
+      const result = await operation();
+      if (result?.ok === true) onClose();
+      else setError(result?.error ?? { message: 'Сохранение не подтверждено.' });
+    } catch {
+      setError({ message: 'Не удалось сохранить изменения. Черновик сохранён в форме.' });
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  }
+
   const [mode, setMode] = useState(initialLesson ? 'view' : 'create');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [backdateWarning, setBackdateWarning] = useState(null);
@@ -53,14 +75,7 @@ export default function AddLessonModal({
       isSubgroupOnly: formData.type === 'ПР' || formData.type === 'ЛАБ'
     };
 
-    if (mode === 'edit' && initialLesson) {
-      onUpdate(payload);
-    } else {
-      onAdd(payload);
-    }
-
-    setBackdateWarning(null);
-    onClose();
+    return submit(() => mode === 'edit' && initialLesson ? onUpdate(payload, base) : onAdd(payload, base));
   };
 
   const handleSubmit = (e) => {
@@ -89,8 +104,23 @@ export default function AddLessonModal({
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const current = existingLessons.find(l => l.id === initialLesson?.id);
+
   return (
-    <JournalDialog titleId="lesson" onDismiss={onClose}>
+    <JournalDialog titleId="lesson" onDismiss={dismiss}>
+      <fieldset disabled={saving} className="min-w-0">
+        {saving && <p role="status">Сохранение…</p>}
+        {error && <div role="alert" className="p-4">
+          <p>{error.message}</p>
+          {error.code === 'conflict' && <>
+            {current ? <p>Сейчас в журнале: {current.date}, {current.type}, {current.hours} ч. Тема: {current.topic || '—'}. ДЗ: {current.homework || '—'}.</p>
+                : <p>{initialLesson ? 'Занятие больше не входит в этот журнал.' :
+                  'Занятия журнала: ' + (existingLessons.map(l => l.date + ' ' + l.type).join(', ') || 'нет')}</p>}
+            <button type="button" onClick={() => { setBase(snapshot); setError(null); }}>
+              Продолжить с текущей версией журнала
+            </button>
+          </>}
+        </div>}
         <div className="flex justify-between items-center p-5 border-b border-emerald-900 bg-[#23483c] text-white">
           <div className="flex items-center gap-3">
             <div>
@@ -108,7 +138,7 @@ export default function AddLessonModal({
           </div>
 
           <button
-            onClick={onClose}
+            onClick={dismiss}
             aria-label="Закрыть"
             className="text-emerald-200/70 hover:text-amber-300 hover:bg-white/10 transition-colors rounded-sm p-1.5 cursor-pointer"
           >
@@ -177,8 +207,7 @@ export default function AddLessonModal({
                   <button
                     type="button"
                     onClick={() => {
-                      onDelete(initialLesson.id);
-                      onClose();
+                      submit(() => onDelete(initialLesson.id, base));
                     }}
                     className="px-3.5 py-1.5 text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 rounded-sm cursor-pointer"
                   >
@@ -203,7 +232,7 @@ export default function AddLessonModal({
                 <div className="flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={onClose}
+                    onClick={dismiss}
                     className="px-4 py-2 text-xs font-bold text-stone-800 dark:text-zinc-200 bg-[#EFECE6] dark:bg-[#2A2F3A] hover:bg-[#E2DCD3] dark:hover:bg-[#323846] border border-[#DED8CE] dark:border-[#3A404D] rounded-sm transition-colors cursor-pointer"
                   >
                     Закрыть
@@ -373,6 +402,7 @@ export default function AddLessonModal({
             )}
           </form>
         )}
+      </fieldset>
     </JournalDialog>
   );
 }

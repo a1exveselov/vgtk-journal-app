@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Internal AI development infrastructure
+/.agents/
+/TASKS/
+/tools/ai/
+
+/AGENTS.md
+/AGENTS-AI-ADDENDUM.md
+/AI_DELEGATION.md
+
+# Internal architecture documentation
+/ACCEPTANCE.md
+/DECISIONS.md
+/DESIGN_SYSTEM.md
+/DOMAIN_RULES.md
+/PROJECT_MAP.md
+/ROADMAP.md

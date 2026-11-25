@@ -1,7 +1,7 @@
-import { useJournal } from '../../data/journalRepository';
+import { schemaNotice, useScopedRead } from '../../data/journalRepository';
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { currentUser } from '../../mocks/initialData';
+import { currentUser, mockGroups } from '../../mocks/initialData';
 import ScheduleWidget from '../dashboard/ScheduleWidget';
 
 const ABSENCE_TYPES = [
@@ -45,27 +45,61 @@ const ABSENCE_TYPES = [
 
 const HOURS_PRESETS = [1, 2, 3, 4, 6, 8];
 
-const journalKeys = ['students', 'lessons', 'grades', 'overrides'];
+const readGroup = (repository, groupId) => repository.read({ groupId });
 
 export default function CuratorDashboard() {
+  const [groupId, setGroupId] = useState(currentUser.curatorGroupIds[0]);
   const [activeTab, setActiveTab] = useState('overview');
-  
+  if (!currentUser.curatorGroupIds.length) return <p>Закреплённых групп нет.</p>;
+  const groups = currentUser.curatorGroupIds.map(id => mockGroups.find(group => group.id === id));
+  const selected = groups.find(group => group?.id === groupId);
+  if (!selected || groups.some(group => !group)) return <p role="alert">Неизвестная группа в назначениях куратора.</p>;
+  return <CuratorGroup key={groupId} group={selected} groups={groups} onGroupChange={setGroupId}
+    activeTab={activeTab} setActiveTab={setActiveTab} />;
+}
+
+function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab }) {
+  const { snapshot, error, mutate, refresh } = useScopedRead(readGroup, group.id);
   const [monthName, setMonthName] = useState('октябрь');
   const [year, setYear] = useState('2026');
   const [course, setCourse] = useState(currentUser.course || 3);
-  const [groupName, setGroupName] = useState(currentUser.curatorGroup || 'ПО-31');
+  const [groupName, setGroupName] = useState(group.name);
   const [deptHead, setDeptHead] = useState(currentUser.departmentHead || 'Н.Е. Дасько');
   const [curatorName, setCuratorName] = useState(currentUser.curatorShortName || 'И.И. Иванов');
 
-  const { data, error, save, saveError } = useJournal(journalKeys);
-  const { students, lessons, grades, overrides: curatorOverrides } = data;
-
+  const [failedEdit, setFailedEdit] = useState(null);
   const [selectedReason, setSelectedReason] = useState('Б');
   const [hoursMode, setHoursMode] = useState('auto');
   const [customHoursInput, setCustomHoursInput] = useState(2);
   const [toolAction, setToolAction] = useState('stamp');
 
-  if (error) return <p role="alert">{error.message}</p>;
+  const printDraft = groupName !== group.name || monthName !== 'октябрь' || year !== '2026' ||
+    String(course) !== String(currentUser.course || 3) || deptHead !== (currentUser.departmentHead || 'Н.Е. Дасько') ||
+    curatorName !== (currentUser.curatorShortName || 'И.И. Иванов');
+  const changeGroup = (id) => {
+    if (!groups.some(g => g.id === id)) return;
+    if ((printDraft || failedEdit || hoursMode === 'manual') &&
+      !window.confirm('Сбросить черновик этой группы и переключиться?')) return;
+    onGroupChange(id);
+  };
+  const picker = (
+    <label className="field-label">Закреплённая группа
+      <select value={group.id} onChange={e => changeGroup(e.target.value)}>
+        {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+      </select>
+    </label>
+  );
+  if (error) return <>{picker}<p role="alert">{error.message} <button onClick={refresh}>Перечитать</button></p></>;
+  const { students, lessons, grades, overrides: curatorOverrides, configs, completions } = snapshot;
+
+  function saveOverride(command) {
+    const result = mutate(snapshot, command);
+    if (result.ok) setFailedEdit(null);
+    else {
+      setFailedEdit({ error: result.error, command });
+      refresh();
+    }
+  }
 
   const daysInMonth = Array.from({ length: 31 }, (_, i) => i + 1);
 
@@ -110,25 +144,26 @@ export default function CuratorDashboard() {
   };
 
   const handleCellClick = (studentId, day) => {
+    if (failedEdit) return;
     const key = `${studentId}_${day}`;
     const currentEntry = getCellEntry(studentId, day);
     const journalHours = journalHoursMap[key] || 0;
 
-    const updated = { ...curatorOverrides };
+    let value;
     if (toolAction === 'eraser') {
-      updated[key] = { cleared: true };
+      value = { cleared: true };
     } else if (toolAction === 'resetToJournal') {
-      delete updated[key];
+      value = null;
     } else if (selectedReason === 'Сп') {
-      updated[key] = { reason: 'Сп', customHours: null, cleared: false };
+      value = { reason: 'Сп', customHours: null, cleared: false };
     } else {
       const existingHours = currentEntry?.hours || journalHours;
       const customHours = hoursMode === 'auto'
         ? (existingHours > 0 ? existingHours : 2)
         : Number(customHoursInput) || 2;
-      updated[key] = { reason: selectedReason, customHours, cleared: false };
+      value = { reason: selectedReason, customHours, cleared: false };
     }
-    save({ overrides: updated });
+    saveOverride({ type: 'setOverride', studentId, day, value });
   };
 
   const getForm6StudentTotals = (studentId) => {
@@ -299,9 +334,22 @@ export default function CuratorDashboard() {
       : null;
 
     const form6Totals = getForm6StudentTotals(student.id);
+    let completedWorks = 0;
+    let totalWorks = 0;
+    for (const [journalId, config] of Object.entries(configs)) {
+      const works = completions[journalId]?.[student.id];
+      for (const [prefix, count] of [['LAB', config.labsCount], ['PR', config.practicalsCount]]) {
+        totalWorks += count;
+        for (let i = 1; i <= count; i++) {
+          if (works?.[`${prefix}_${i}`]) completedWorks++;
+        }
+      }
+    }
 
     return {
       ...student,
+      completedWorks,
+      totalWorks,
       avg: avg ? parseFloat(avg) : 0,
       excusedHours: form6Totals.excusedTotal,
       unexcusedHours: form6Totals['Н/У'],
@@ -319,14 +367,21 @@ export default function CuratorDashboard() {
 
   return (
     <div className="space-y-6">
-      {saveError && <p role="alert">{saveError.message}</p>}
+      {failedEdit && <div role="alert">
+        <p>{failedEdit.error.message} Проверьте запись за {failedEdit.command.day} число
+          ({students.find(s => s.id === failedEdit.command.studentId)?.fullName || failedEdit.command.studentId}).</p>
+        <button onClick={() => saveOverride(failedEdit.command)}>Повторить запись</button>{' · '}
+        <button onClick={() => setFailedEdit(null)}>Отменить черновик</button>
+      </div>}
       <header className="page-heading">
-        <div><p className="section-kicker">Кабинет куратора</p><h1>Группа {groupName}</h1></div>
+        <div><p className="section-kicker">Кабинет куратора</p><h1>Группа {snapshot.group.name}</h1></div>
+        {picker}
         <div className="section-tabs" role="group" aria-label="Раздел кабинета">
           <button aria-pressed={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>Обзор группы</button>
           <button aria-pressed={activeTab === 'form6'} onClick={() => setActiveTab('form6')}>Форма № 6</button>
         </div>
       </header>
+      <p className="text-xs">{schemaNotice}</p>
 
       {activeTab === 'overview' ? (
         <div className="space-y-6">
@@ -336,7 +391,7 @@ export default function CuratorDashboard() {
             <div><dt>Пропущено за месяц</dt><dd>{groupForm6Totals.grandTotal} ч.</dd><small>Без уважительной причины {groupForm6Totals['Н/У']} ч.</small></div>
           </dl>
 
-          <ScheduleWidget groupFilter={groupName} />
+          <ScheduleWidget groupFilter={snapshot.group.name} />
 
           {riskStudents.length > 0 && (
             <div className="bg-[#F4E8D4] dark:bg-[#22201B] border border-amber-400/60 dark:border-amber-500/40 rounded-sm p-5 flex items-start gap-4">
@@ -381,7 +436,9 @@ export default function CuratorDashboard() {
                   {studentsStats.map((student, idx) => (
                     <tr key={student.id} className="hover:bg-[#F3EFE8] dark:hover:bg-[#22262E] transition-colors">
                       <td className="px-5 py-3 text-center text-stone-500 dark:text-zinc-400">{idx + 1}</td>
-                      <td className="px-5 py-3 font-medium text-stone-900 dark:text-zinc-100">{student.fullName}</td>
+                      <td className="px-5 py-3 font-medium text-stone-900 dark:text-zinc-100">{student.fullName}
+                        <small className="block">Сдано работ: {student.completedWorks} из {student.totalWorks}</small>
+                      </td>
                       <td className="px-5 py-3 text-center">
                         <span className={`px-2 py-0.5 rounded text-xs font-bold border ${
                           student.subgroup === 1
@@ -464,8 +521,9 @@ export default function CuratorDashboard() {
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Группа</label>
+                <label htmlFor="form6-print-group" className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Группа в отчёте</label>
                 <input
+                  id="form6-print-group"
                   type="text"
                   value={groupName}
                   onChange={(e) => setGroupName(e.target.value)}

@@ -1,4 +1,4 @@
-import { getGradeHourIndex, getLessonSubjectId, useJournal } from '../../data/journalRepository';
+import { getGradeHourIndex } from '../../data/journalRepository';
 import JournalDialog from '../ui/JournalDialog';
 import { useState } from 'react';
 import { AlertTriangle, X, Check } from 'lucide-react';
@@ -7,14 +7,9 @@ import { getLessonTimestamp } from './lessonDate';
 import SubgroupManagerModal from './SubgroupManagerModal';
 import WorkCompletionModule from './WorkCompletionModule';
 
-const journalKeys = ['students', 'lessons', 'grades'];
-
-export default function JournalTable({
-  sheetId,
-  subjectId = 'subj-kp',
-  subjectName = 'Конструирование программ и языки программирования',
-  isMainSheet = true
-}) {
+export default function JournalTable({ snapshot, save }) {
+  const { subjectName, isMain: isMainSheet } = snapshot.sheet;
+  const [gradeFailure, setGradeFailure] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedLesson, setSelectedLesson] = useState(null);
   const [isSubgroupModalOpen, setIsSubgroupModalOpen] = useState(false);
@@ -30,54 +25,22 @@ export default function JournalTable({
     ? 'Преподаватель 1-й подгруппы (Главный)'
     : 'Преподаватель 2-й подгруппы';
 
-  const { data, error, save, saveError } = useJournal(journalKeys);
-  const { students, lessons: allLessons, grades } = data;
   const [editingCell, setEditingCell] = useState(null);
-  if (error) return <p role="alert">{error.message}</p>;
-
+  const displayed = editingCell?.base ?? snapshot;
+  const { students, grades } = displayed;
   const isSubgroupLesson = (lesson) => {
     return lesson.type === 'ПР' || lesson.type === 'ЛАБ' || lesson.isSubgroupOnly;
   };
 
   // Оба преподавателя видят все занятия предмета и весь список группы
-  const lessons = allLessons
-    .filter((lesson) => getLessonSubjectId(lesson) === subjectId)
-    .sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
-
+  const lessons = [...displayed.lessons].sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
   const visibleStudents = students;
 
-  const handleAddLesson = (newLessonData) => {
-    const newLesson = {
-      isSubgroupOnly: newLessonData.type === 'ПР' || newLessonData.type === 'ЛАБ',
-      ...newLessonData,
-      id: `l${Date.now()}`,
-      subjectId,
-      sheetId,
-      createdByMain: isMainSheet,
-    };
-    save({ lessons: [...allLessons, newLesson] });
-  };
-
-  const handleUpdateLesson = ({ date, rawDate, day, type, hours, topic, homework, isSubgroupOnly }) => {
-    if (!selectedLesson) return;
-    const lessonId = selectedLesson.id;
-    const changes = {
-      lessons: allLessons.map((lesson) => lesson.id === lessonId
-        ? { ...lesson, date, rawDate, day, type, hours, topic, homework, isSubgroupOnly }
-        : lesson)
-    };
-    if (Number(hours) === 1) {
-      changes.grades = grades.filter((g) => !(g.lessonId === lessonId && getGradeHourIndex(g) === 2));
-    }
-    save(changes);
-  };
-
-  const handleDeleteLesson = (lessonId) => {
-    save({
-      lessons: allLessons.filter((lesson) => lesson.id !== lessonId),
-      grades: grades.filter((grade) => grade.lessonId !== lessonId)
-    });
-  };
+  const handleAddLesson = (fields, base) =>
+    save(base, { type: 'addLesson', lessonId: `l${Date.now()}`, fields });
+  const handleUpdateLesson = (fields, base) =>
+    save(base, { type: 'updateLesson', lessonId: selectedLesson.id, fields });
+  const handleDeleteLesson = (lessonId, base) => save(base, { type: 'deleteLesson', lessonId });
 
   // Проверка: относится ли учащийся к чужой подгруппе для текущего преподавателя
   const isForeignSubgroupStudent = (student) => {
@@ -88,6 +51,7 @@ export default function JournalTable({
   const handleCellClick = (student, lesson, hourIndex) => {
     if (isForeignSubgroupStudent(student)) {
       setCrossSubgroupWarning({
+        base: snapshot,
         student,
         lesson,
         hourIndex
@@ -99,7 +63,7 @@ export default function JournalTable({
       studentId: student.id,
       lessonId: lesson.id,
       hourIndex,
-      isCrossSubgroup: false
+      base: snapshot, isCrossSubgroup: false
     });
   };
 
@@ -112,42 +76,26 @@ export default function JournalTable({
       studentId: student.id,
       lessonId: lesson.id,
       hourIndex,
-      isCrossSubgroup: true
+      base: crossSubgroupWarning.base, isCrossSubgroup: true
     });
   };
 
   // Сохранение оценки с фиксацией пометки, если это чужая подгруппа
   const handleSaveGrade = (student, lessonId, hourIndex, value) => {
     const cleanValue = value.trim().toUpperCase();
-    const filteredGrades = grades.filter(
-      (g) => !(g.studentId === student.id && g.lessonId === lessonId && getGradeHourIndex(g) === hourIndex)
-    );
-
-    const isCross = isForeignSubgroupStudent(student);
-    const crossMeta = isCross
-      ? {
-          isCrossSubgroup: true,
-          markedBySubgroup: teacherSubgroup,
-          markedByRole: teacherRoleLabel
-        }
-      : {
-          isCrossSubgroup: false,
-          markedBySubgroup: teacherSubgroup,
-          markedByRole: teacherRoleLabel
-        };
-
-    if (cleanValue !== '') {
-      const absent = cleanValue === 'Н';
-      filteredGrades.push({
-        lessonId, hourIndex, studentId: student.id,
-        grade: absent ? null : cleanValue,
-        attendance: absent ? 'ABSENT' : 'PRESENT',
-        ...crossMeta
-      });
-    }
-    save({ grades: filteredGrades });
+    const isCross = editingCell.isCrossSubgroup;
+    const absent = cleanValue === 'Н';
+    const command = { type: 'setGrade', studentId: student.id, lessonId, hourIndex,
+      value: cleanValue ? { grade: absent ? null : cleanValue, attendance: absent ? 'ABSENT' : 'PRESENT',
+        isCrossSubgroup: isCross, markedBySubgroup: teacherSubgroup, markedByRole: teacherRoleLabel } : null };
+    const result = save(editingCell.base, command);
+    setGradeFailure(result.ok ? null : { message: result.error.message, command, text: cleanValue });
     setEditingCell(null);
   };
+
+  const savedGrade = gradeFailure && snapshot.grades.find(g =>
+    g.studentId === gradeFailure.command.studentId && g.lessonId === gradeFailure.command.lessonId &&
+    getGradeHourIndex(g) === gradeFailure.command.hourIndex);
 
   const hourColumns = lessons.flatMap((lesson) => {
     const count = lesson.hours === 1 ? 1 : 2;
@@ -191,9 +139,20 @@ export default function JournalTable({
 
   return (
     <div className="space-y-6">
-      {saveError && <p role="alert">{saveError.message}</p>}
+      {gradeFailure && <div role="alert">{gradeFailure.message} Черновик отметки: {gradeFailure.text || 'очистить'}.
+        Сейчас в журнале: {savedGrade?.attendance === 'ABSENT' ? 'Н' : savedGrade?.grade ?? 'пусто'}.
+        <button onClick={() => {
+          const { command } = gradeFailure;
+          const student = students.find(s => s.id === command.studentId);
+          const lesson = lessons.find(l => l.id === command.lessonId);
+          if (student && lesson && command.hourIndex <= lesson.hours) {
+            handleCellClick(student, lesson, command.hourIndex);
+          }
+        }}>Открыть ячейку для сверки</button>
+        <button onClick={() => setGradeFailure(null)}>Отменить черновик</button>
+      </div>}
       <header className="sheet-heading">
-        <p className="section-kicker">Группа ПО-31 · {isMainSheet ? 'Основной лист' : '2-я подгруппа'}</p>
+        <p className="section-kicker">Группа {snapshot.group.name} · {isMainSheet ? 'Основной лист' : '2-я подгруппа'}</p>
         <h1>{subjectName}</h1>
         <div className="sheet-tools">
           <button aria-pressed={showWorksModule} onClick={() => setShowWorksModule((open) => !open)}>Сдача работ</button>
@@ -363,10 +322,11 @@ export default function JournalTable({
                               aria-label="Отметка"
                               autoFocus
                               maxLength={2}
-                              defaultValue={displayValue}
+                              defaultValue={gradeFailure?.command.studentId === student.id && gradeFailure.command.lessonId === lesson.id &&
+                                gradeFailure.command.hourIndex === hourIndex ? gradeFailure.text : displayValue}
                               onBlur={(e) => handleSaveGrade(student, lesson.id, hourIndex, e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') handleSaveGrade(student, lesson.id, hourIndex, e.target.value);
+                                if (e.key === 'Enter') e.currentTarget.blur();
                                 if (e.key === 'Escape') setEditingCell(null);
                               }}
                               className="w-full h-10 text-center text-sm font-bold outline-none ring-2 ring-emerald-700 dark:ring-amber-400 z-20 relative bg-[#FAF8F5] dark:bg-[#262B34] text-stone-900 dark:text-zinc-100"
@@ -435,7 +395,8 @@ export default function JournalTable({
         <WorkCompletionModule
           students={visibleStudents}
           isMainSheet={isMainSheet}
-          subjectId={subjectId}
+          snapshot={snapshot}
+          save={save}
         />
       )}
 
@@ -569,6 +530,7 @@ export default function JournalTable({
           setIsModalOpen(false);
           setSelectedLesson(null);
         }}
+        snapshot={snapshot}
         onAdd={handleAddLesson}
         onUpdate={handleUpdateLesson}
         onDelete={handleDeleteLesson}
@@ -580,7 +542,8 @@ export default function JournalTable({
       {isSubgroupModalOpen && <SubgroupManagerModal
         onClose={() => setIsSubgroupModalOpen(false)}
         students={students}
-        onSave={(updated) => save({ students: updated })}
+        snapshot={snapshot}
+        onSave={(updates, base) => save(base, { type: 'setSubgroups', updates })}
       />}
     </div>
   );

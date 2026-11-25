@@ -1,7 +1,20 @@
+export const mockGroups = [
+  { id: "group-1", name: "ПО-31" },
+  { id: "group-2", name: "ПО-32" }
+];
+
+export const mockJournals = [
+  { id: "journal-1", subjectId: "subj-kp", groupId: "group-1", teacher: "1 п/г: Иванов И. И. / 2 п/г: Петров П. П." },
+  { id: "journal-2", subjectId: "subj-db", groupId: "group-1", teacher: "Сидорова А. В." },
+  { id: "journal-3", subjectId: "subj-web", groupId: "group-1", teacher: "1 п/г: Иванов И. И. / 2 п/г: Козлов Д. С." },
+  { id: "journal-4", subjectId: "subj-kp", groupId: "group-2", teacher: "Иванов И. И." }
+];
+
 export const currentUser = {
   id: "t1",
   fullName: "Иванов Иван Иванович",
   roles: ["TEACHER", "CURATOR"],
+  curatorGroupIds: ["group-1", "group-2"],
   curatorGroup: "ПО-31",
   course: 3,
   departmentHead: "Н.Е. Дасько",
@@ -9,6 +22,8 @@ export const currentUser = {
   teachingSubjects: [
     {
       id: "j1",
+      groupId: "group-1",
+      journalId: "journal-1",
       subjectId: "subj-kp",
       subjectName: "Конструирование программ и языки программирования",
       groupName: "ПО-31",
@@ -17,6 +32,8 @@ export const currentUser = {
     },
     {
       id: "j2",
+      groupId: "group-1",
+      journalId: "journal-1",
       subjectId: "subj-kp",
       subjectName: "Конструирование программ и языки программирования",
       groupName: "ПО-31",
@@ -25,6 +42,8 @@ export const currentUser = {
     },
     {
       id: "j3",
+      groupId: "group-1",
+      journalId: "journal-2",
       subjectId: "subj-db",
       subjectName: "Базы данных",
       groupName: "ПО-31",
@@ -33,42 +52,57 @@ export const currentUser = {
     },
     {
       id: "j4",
+      groupId: "group-1",
+      journalId: "journal-3",
       subjectId: "subj-web",
       subjectName: "Технология разработки веб-ресурсов",
       groupName: "ПО-31",
       isMain: true,
       sheetId: "subj-web-main"
+    },
+    {
+      id: "j5",
+      groupId: "group-2",
+      journalId: "journal-4",
+      subjectId: "subj-kp",
+      subjectName: "Конструирование программ и языки программирования",
+      groupName: "ПО-32",
+      isMain: true,
+      sheetId: "subj-kp-32-main"
     }
   ]
 };
 
 export const mockStudents = [
-  { id: "s1", fullName: "Алексеев Алексей", subgroup: 1, groupName: "ПО-31" },
-  { id: "s2", fullName: "Борисов Борис", subgroup: 1, groupName: "ПО-31" },
-  { id: "s3", fullName: "Васильев Василий", subgroup: 1, groupName: "ПО-31" },
-  { id: "s4", fullName: "Григорьев Григорий", subgroup: 2, groupName: "ПО-31" },
-  { id: "s5", fullName: "Дмитриев Дмитрий", subgroup: 2, groupName: "ПО-31" },
-  { id: "s6", fullName: "Евгеньев Евгений", subgroup: 2, groupName: "ПО-31" },
+  { id: "s1", fullName: "Алексеев Алексей", subgroup: 1, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s2", fullName: "Борисов Борис", subgroup: 1, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s3", fullName: "Васильев Василий", subgroup: 1, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s4", fullName: "Григорьев Григорий", subgroup: 2, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s5", fullName: "Дмитриев Дмитрий", subgroup: 2, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s6", fullName: "Евгеньев Евгений", subgroup: 2, groupId: "group-1", groupName: "ПО-31" },
+  { id: "s32-1", fullName: "Тестов Ян", subgroup: 1, groupId: "group-2", groupName: "ПО-32" },
+  { id: "s32-2", fullName: "Примерова Ева", subgroup: 2, groupId: "group-2", groupName: "ПО-32" },
 ];
 
 // Каждое занятие теперь привязано к своему предмету через subjectId
 export const mockLessons = [
   // Предмет 1: Конструирование программ (subj-kp)
-  { id: "l1", subjectId: "subj-kp", date: "24.10", day: 24, type: "ЛЕК", hours: 2, topic: "Введение в паттерны проектирования", homework: "Конспект лекции", createdByMain: true },
-  { id: "l2", subjectId: "subj-kp", date: "27.10", day: 27, type: "ПР", hours: 2, topic: "Реализация паттерна Singleton и Factory", homework: "Практическое задание №1", isSubgroupOnly: true, createdByMain: true },
-  { id: "l3", subjectId: "subj-kp", date: "29.10", day: 29, type: "ОК", hours: 1, topic: "Тестирование по принципам SOLID", homework: "Повторить главу 2", createdByMain: true },
+  { id: "l1", subjectId: "subj-kp", groupId: "group-1", journalId: "journal-1", date: "24.10", day: 24, type: "ЛЕК", hours: 2, topic: "Введение в паттерны проектирования", homework: "Конспект лекции", createdByMain: true },
+  { id: "l2", subjectId: "subj-kp", groupId: "group-1", journalId: "journal-1", date: "27.10", day: 27, type: "ПР", hours: 2, topic: "Реализация паттерна Singleton и Factory", homework: "Практическое задание №1", isSubgroupOnly: true, createdByMain: true },
+  { id: "l3", subjectId: "subj-kp", groupId: "group-1", journalId: "journal-1", date: "29.10", day: 29, type: "ОК", hours: 1, topic: "Тестирование по принципам SOLID", homework: "Повторить главу 2", createdByMain: true },
 
   // Предмет 2: Базы данных (subj-db)
-  { id: "db1", subjectId: "subj-db", date: "21.10", day: 21, type: "ЛЕК", hours: 2, topic: "Нормализация отношений (1НФ–3НФ)", homework: "Привести схему БД к 3НФ", createdByMain: true },
-  { id: "db2", subjectId: "subj-db", date: "26.10", day: 26, type: "ЛАБ", hours: 2, topic: "Сложные SELECT-запросы и JOIN в PostgreSQL", homework: "Отчёт по лабораторной работе №1", isSubgroupOnly: true, createdByMain: true },
+  { id: "db1", subjectId: "subj-db", groupId: "group-1", journalId: "journal-2", date: "21.10", day: 21, type: "ЛЕК", hours: 2, topic: "Нормализация отношений (1НФ–3НФ)", homework: "Привести схему БД к 3НФ", createdByMain: true },
+  { id: "db2", subjectId: "subj-db", groupId: "group-1", journalId: "journal-2", date: "26.10", day: 26, type: "ЛАБ", hours: 2, topic: "Сложные SELECT-запросы и JOIN в PostgreSQL", homework: "Отчёт по лабораторной работе №1", isSubgroupOnly: true, createdByMain: true },
 
   // Предмет 3: Технология разработки веб-ресурсов (subj-web)
-  { id: "web1", subjectId: "subj-web", date: "22.10", day: 22, type: "ЛЕК", hours: 2, topic: "Архитектура SPA и компонентный подход в React", homework: "Развернуть проект на Vite + Tailwind", createdByMain: true },
-  { id: "web2", subjectId: "subj-web", date: "28.10", day: 28, type: "ЛАБ", hours: 2, topic: "Работа с хуками useState и useEffect", homework: "Лабораторная работа №1", isSubgroupOnly: true, createdByMain: true }
+  { id: "web1", subjectId: "subj-web", groupId: "group-1", journalId: "journal-3", date: "22.10", day: 22, type: "ЛЕК", hours: 2, topic: "Архитектура SPA и компонентный подход в React", homework: "Развернуть проект на Vite + Tailwind", createdByMain: true },
+  { id: "web2", subjectId: "subj-web", groupId: "group-1", journalId: "journal-3", date: "28.10", day: 28, type: "ЛАБ", hours: 2, topic: "Работа с хуками useState и useEffect", homework: "Лабораторная работа №1", isSubgroupOnly: true, createdByMain: true },
+  { id: "kp32-1", subjectId: "subj-kp", groupId: "group-2", journalId: "journal-4", sheetId: "subj-kp-32-main", date: "23.10", day: 23, type: "ЛЕК", hours: 2, topic: "Интерфейсы и композиция", homework: "Описать интерфейс коллекции", createdByMain: true }
 ];
 
 // Оценки привязаны к конкретному lessonId (а через него — к нужному предмету)
-export const mockGrades = [
+export const mockGrades31 = [
   // Оценки по Конструированию программ
   { lessonId: "l1", hourIndex: 1, studentId: "s1", grade: "9", attendance: "PRESENT" },
   { lessonId: "l1", hourIndex: 2, studentId: "s2", grade: "7", attendance: "PRESENT" },
@@ -85,6 +119,13 @@ export const mockGrades = [
   { lessonId: "web1", hourIndex: 1, studentId: "s1", grade: "10", attendance: "PRESENT" },
   { lessonId: "web2", hourIndex: 1, studentId: "s6", grade: "9", attendance: "PRESENT" }
 ];
+
+export const mockGrades32 = [
+  { lessonId: "kp32-1", hourIndex: 1, studentId: "s32-1", grade: "7", attendance: "PRESENT" },
+  { lessonId: "kp32-1", hourIndex: 1, studentId: "s32-2", grade: null, attendance: "ABSENT" }
+];
+
+export const mockGrades = [...mockGrades31, ...mockGrades32];
 
 // Расписание с правильными ссылками на листы конкретных предметов
 export const mockSchedule = {

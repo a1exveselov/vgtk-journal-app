@@ -1,8 +1,30 @@
 import JournalDialog from '../ui/JournalDialog';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { X, Check } from 'lucide-react';
 
-export default function SubgroupManagerModal({ onClose, students = [], onSave }) {
+export default function SubgroupManagerModal({ snapshot, onClose, students = [], onSave }) {
+  const [base, setBase] = useState(snapshot);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const pending = useRef(false);
+  const dismiss = () => { if (!pending.current) onClose(); };
+  async function submit(operation) {
+    if (pending.current || error?.code === 'conflict') return;
+    pending.current = true;
+    setSaving(true);
+    try {
+      const result = await operation();
+      if (result?.ok === true) onClose();
+      else setError(result?.error ?? { message: 'Сохранение не подтверждено.' });
+    } catch {
+      setError({ message: 'Не удалось сохранить изменения. Черновик сохранён в форме.' });
+    } finally {
+      pending.current = false;
+      setSaving(false);
+    }
+  }
+
+  const [original] = useState(students);
   const [localStudents, setLocalStudents] = useState(students);
 
   const toggleSubgroup = (studentId) => {
@@ -19,12 +41,24 @@ export default function SubgroupManagerModal({ onClose, students = [], onSave })
   const subgroup2 = localStudents.filter((s) => s.subgroup === 2);
 
   const handleSave = () => {
-    onSave(localStudents);
-    onClose();
+    const updates = localStudents.filter(s => original.find(row => row.id === s.id)?.subgroup !== s.subgroup)
+      .map(({ id, subgroup }) => ({ id, subgroup }));
+    return submit(() => onSave(updates, base));
   };
 
   return (
-    <JournalDialog titleId="subgroups" onDismiss={onClose} wide>
+    <JournalDialog titleId="subgroups" onDismiss={dismiss} wide>
+      <fieldset disabled={saving} className="min-w-0">
+        {saving && <p role="status">Сохранение…</p>}
+        {error && <div role="alert" className="p-4">
+          <p>{error.message}</p>
+          {error.code === 'conflict' && <>
+            <p>Сейчас в журнале: {students.map(s => s.fullName + ' — ' + s.subgroup + ' п/г').join(', ') || 'нет учащихся'}.</p>
+            <button type="button" onClick={() => { setBase(snapshot); setError(null); }}>
+              Продолжить с текущей версией журнала
+            </button>
+          </>}
+        </div>}
         <div className="flex justify-between items-center p-5 border-b border-emerald-900 bg-[#23483c] text-white">
           <div className="flex items-center gap-3">
             <div>
@@ -36,7 +70,7 @@ export default function SubgroupManagerModal({ onClose, students = [], onSave })
           </div>
 
           <button
-            onClick={onClose}
+            onClick={dismiss}
             aria-label="Закрыть"
             className="text-emerald-200/70 hover:text-amber-300 hover:bg-white/10 transition-colors rounded-sm p-1.5 cursor-pointer"
           >
@@ -109,7 +143,7 @@ export default function SubgroupManagerModal({ onClose, students = [], onSave })
         <div className="px-5 py-4 border-t border-[#E2DCD3] dark:border-[#323844] bg-[#EFECE6]/70 dark:bg-[#1C1F26] flex justify-end gap-2.5">
           <button
             type="button"
-            onClick={onClose}
+            onClick={dismiss}
             className="px-4 py-2 text-xs font-bold text-stone-800 dark:text-zinc-200 bg-[#EFECE6] dark:bg-[#2A2F3A] hover:bg-[#E2DCD3] dark:hover:bg-[#323846] border border-[#DED8CE] dark:border-[#3A404D] rounded-sm transition-colors cursor-pointer"
           >
             Отмена
@@ -123,6 +157,7 @@ export default function SubgroupManagerModal({ onClose, students = [], onSave })
             <span>Сохранить списки</span>
           </button>
         </div>
+      </fieldset>
     </JournalDialog>
   );
 }

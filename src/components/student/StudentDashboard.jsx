@@ -1,26 +1,9 @@
-import { getGradeHourIndex, getLessonSubjectId, useJournal } from '../../data/journalRepository';
+import { getGradeHourIndex, schemaNotice, useScopedRead } from '../../data/journalRepository';
+import { mockGroups } from '../../mocks/initialData';
 import { useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import ScheduleWidget from '../dashboard/ScheduleWidget';
 import { getLessonTimestamp } from '../journal/lessonDate';
-
-const SUBJECTS_CATALOG = [
-  {
-    subjectId: 'subj-kp',
-    name: 'Конструирование программ и языки программирования',
-    teacher: '1 п/г: Иванов И. И. / 2 п/г: Петров П. П.'
-  },
-  {
-    subjectId: 'subj-db',
-    name: 'Базы данных',
-    teacher: 'Сидорова А. В.'
-  },
-  {
-    subjectId: 'subj-web',
-    name: 'Технология разработки веб-ресурсов',
-    teacher: '1 п/г: Иванов И. И. / 2 п/г: Козлов Д. С.'
-  }
-];
 
 const ABSENCE_TYPES = [
   {
@@ -61,24 +44,51 @@ const ABSENCE_TYPES = [
   },
 ];
 
-const journalKeys = ['students', 'lessons', 'grades', 'overrides', 'configs', 'completions'];
+function readDemoRoster(repository) {
+  const students = [];
+  for (const group of mockGroups) {
+    const result = repository.read({ groupId: group.id });
+    if (!result.ok) return result;
+    for (const { id, fullName, subgroup } of result.snapshot.students) {
+      students.push({ id, fullName, subgroup, groupId: group.id, groupName: group.name });
+    }
+  }
+  return { ok: true, students };
+}
+
+const readStudent = (repository, studentId) => repository.read({ studentId });
 
 export default function StudentDashboard() {
-  const { data, error } = useJournal(journalKeys);
-  const { students = [], lessons, grades, overrides: curatorOverrides,
-    configs: worksConfigsBySubject, completions: worksCompletionsBySubject } = data;
-  const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || 's1');
+  const roster = useScopedRead(readDemoRoster);
+  const [choice, setChoice] = useState(null);
+  if (roster.error) return <p role="alert">{roster.error.message} <button onClick={roster.refresh}>Перечитать</button></p>;
+  if (!roster.students.length) return <p>В журнале нет учащихся.</p>;
+  const studentId = choice ?? roster.students[0].id;
+  const student = roster.students.find(s => s.id === studentId);
+  const picker = (
+    <label className="field-label">Демо-выбор учащегося
+      <select value={student ? studentId : ''} onChange={e => setChoice(e.target.value)}>
+        {!student && <option value="" disabled>Выберите учащегося</option>}
+        {roster.students.map(s => <option key={s.id} value={s.id}>{s.fullName} ({s.groupName}, {s.subgroup} п/г)</option>)}
+      </select>
+    </label>
+  );
+  if (!student) return <>{picker}<p role="alert">Выбранный учащийся недоступен.</p></>;
+  return <StudentJournal key={JSON.stringify([studentId, student.groupId])} studentId={studentId} picker={picker} />;
+}
+
+function StudentJournal({ studentId, picker }) {
+  const { snapshot, error, refresh } = useScopedRead(readStudent, studentId);
   const [activeTab, setActiveTab] = useState('grades');
-  const [selectedSubjectId, setSelectedSubjectId] = useState('subj-kp');
+  const [selectedJournalId, setSelectedJournalId] = useState(null);
 
-  const currentStudent = students.find((s) => s.id === selectedStudentId) || students[0];
+  if (error) return <>{picker}<p role="alert">{error.message} <button onClick={refresh}>Перечитать</button></p></>;
+  const { students: [currentStudent], group, journals, sheets, lessons, grades,
+    overrides: curatorOverrides, configs, completions } = snapshot;
 
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!currentStudent) return <p>В журнале нет учащихся.</p>;
-
-  const subjectsStats = SUBJECTS_CATALOG.map((subject) => {
+  const subjectsStats = journals.map((journal) => {
     const subjLessons = lessons
-      .filter((l) => getLessonSubjectId(l) === subject.subjectId)
+      .filter((l) => l.journalId === journal.id)
       .sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
 
     const subjLessonIds = subjLessons.map((l) => l.id);
@@ -98,7 +108,7 @@ export default function StudentDashboard() {
 
     const absentHours = subjGrades.filter((g) => g.attendance === 'ABSENT').length;
 
-    const cfg = worksConfigsBySubject[subject.subjectId] || { labsCount: 0, practicalsCount: 0 };
+    const cfg = configs[journal.id] || { labsCount: 0, practicalsCount: 0 };
     const labWorks = Array.from({ length: Number(cfg.labsCount) || 0 }, (_, i) => ({
       id: `LAB_${i + 1}`,
       label: `ЛАБ №${i + 1}`,
@@ -112,13 +122,15 @@ export default function StudentDashboard() {
 
     const worksList = [...labWorks, ...prWorks].map((w) => ({
       ...w,
-      isDone: Boolean(worksCompletionsBySubject[`${subject.subjectId}_${currentStudent.id}_${w.id}`])
+      isDone: completions[journal.id]?.[studentId]?.[w.id] === true
     }));
 
     const completedWorksCount = worksList.filter((w) => w.isDone).length;
 
     return {
-      ...subject,
+      journalId: journal.id,
+      name: sheets.find(sheet => sheet.journalId === journal.id)?.subjectName || journal.subjectId,
+      teacher: journal.teacher || '—',
       lessons: subjLessons,
       grades: subjGrades,
       avg,
@@ -204,7 +216,7 @@ export default function StudentDashboard() {
   };
 
   const activeSubjectForTopics =
-    subjectsStats.find((s) => s.subjectId === selectedSubjectId) || subjectsStats[0];
+    subjectsStats.find((s) => s.journalId === selectedJournalId) || subjectsStats[0];
 
   return (
     <div className="space-y-6">
@@ -212,14 +224,11 @@ export default function StudentDashboard() {
         <div>
           <p className="section-kicker">Кабинет учащегося</p>
           <h1>{currentStudent?.fullName}</h1>
-          <p>Группа {currentStudent?.groupName || 'ПО-31'} · {currentStudent?.subgroup}-я подгруппа</p>
+          <p>Группа {group.name} · {currentStudent.subgroup}-я подгруппа</p>
         </div>
-        <label className="field-label">Учащийся
-          <select value={currentStudent.id} onChange={(e) => setSelectedStudentId(e.target.value)}>
-            {students.map((st) => <option key={st.id} value={st.id}>{st.fullName} ({st.subgroup} п/г)</option>)}
-          </select>
-        </label>
+        {picker}
       </header>
+      <p className="text-xs">{schemaNotice}</p>
       <dl className="metric-strip">
         <div><dt>Средний балл</dt><dd>{overallAvg || '—'}</dd><small>По {subjectsWithAvg.length} из {subjectsStats.length} дисциплин</small></div>
         <div><dt>Сдано работ</dt><dd>{completedWorksAllSubjects} <small>из {totalWorksAllSubjects}</small></dd></div>
@@ -237,13 +246,14 @@ export default function StudentDashboard() {
         ))}
       </div>
 
+      {!subjectsStats.length && ['grades', 'topics'].includes(activeTab) && <p>У группы нет журналов дисциплин.</p>}
       {activeTab === 'grades' && (
         <div className="space-y-5">
           {subjectsStats.map((subj) => {
             const positiveGrades = subj.grades.filter((g) => g.attendance !== 'ABSENT' && g.grade);
 
             return (
-              <div key={subj.subjectId} className="bg-[var(--card)] rounded-sm border border-[var(--line)] shadow-sm overflow-hidden transition-colors duration-300">
+              <div key={subj.journalId} className="bg-[var(--card)] rounded-sm border border-[var(--line)] shadow-sm overflow-hidden transition-colors duration-300">
                 <div className="p-5 border-b border-[var(--line)] bg-[var(--soft)] flex flex-col md:flex-row md:items-center justify-between gap-3">
                   <div>
                     <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-base">{subj.name}</h3>
@@ -255,7 +265,7 @@ export default function StudentDashboard() {
                   <div className="flex items-center gap-4 self-start md:self-center">
                     <button
                       onClick={() => {
-                        setSelectedSubjectId(subj.subjectId);
+                        setSelectedJournalId(subj.journalId);
                         setActiveTab('topics');
                       }}
                       className="text-xs font-bold text-emerald-900 dark:text-amber-300 hover:text-emerald-700 dark:hover:text-amber-200 underline decoration-dotted cursor-pointer"
@@ -337,16 +347,16 @@ export default function StudentDashboard() {
         </div>
       )}
 
-      {activeTab === 'topics' && (
+      {activeTab === 'topics' && activeSubjectForTopics && (
         <div className="space-y-5">
           <div className="bg-[var(--card)] p-4 rounded-sm border border-[var(--line)] shadow-sm flex flex-wrap items-center gap-2 transition-colors duration-300">
             <span className="text-xs font-bold text-stone-600 dark:text-zinc-400 uppercase mr-2">Выберите предмет:</span>
             {subjectsStats.map((subj) => (
               <button
-                key={subj.subjectId}
-                onClick={() => setSelectedSubjectId(subj.subjectId)}
+                key={subj.journalId}
+                onClick={() => setSelectedJournalId(subj.journalId)}
                 className={`px-3.5 py-2 rounded-sm text-xs font-bold transition-all cursor-pointer ${
-                  activeSubjectForTopics.subjectId === subj.subjectId
+                  activeSubjectForTopics.journalId === subj.journalId
                     ? 'bg-[#244b3c] text-white shadow-xs'
                     : 'bg-[var(--soft)] text-stone-700 dark:text-zinc-300 hover:bg-[#E2DCD3] dark:hover:bg-[#2A2F3A]'
                 }`}
@@ -517,7 +527,7 @@ export default function StudentDashboard() {
 
       {activeTab === 'schedule' && (
         <ScheduleWidget
-          groupFilter={currentStudent?.groupName || 'ПО-31'}
+          groupFilter={group.name}
         />
       )}
     </div>

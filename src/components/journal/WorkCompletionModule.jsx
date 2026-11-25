@@ -1,23 +1,23 @@
-import { useJournal } from '../../data/journalRepository';
 import JournalDialog from '../ui/JournalDialog';
 import { useState } from 'react';
 import { Check, AlertTriangle, X } from 'lucide-react';
 
-const journalKeys = ['configs', 'completions', 'crossMarks'];
-
-export default function WorkCompletionModule({ students, isMainSheet, subjectId = 'subj-kp' }) {
+export default function WorkCompletionModule({ students, isMainSheet, snapshot, save }) {
+  const journalId = snapshot.journal.id;
+  const [saveError, setSaveError] = useState(null);
+  const [configBase, setConfigBase] = useState(null);
   const teacherSubgroup = isMainSheet ? 1 : 2;
   const [pendingForeignToggle, setPendingForeignToggle] = useState(null);
 
-  const { data, error, save, saveError } = useJournal(journalKeys);
-  const { configs: allConfigs, completions, crossMarks: crossSubgroupMarks } = data;
-  const currentConfig = allConfigs?.[subjectId] || { initialized: false, labsCount: 0, practicalsCount: 0 };
+  const completions = snapshot.completions[journalId] ?? {};
+  const crossSubgroupMarks = snapshot.crossMarks[journalId] ?? {};
+  const currentConfig = snapshot.configs[journalId] || { initialized: false, labsCount: 0, practicalsCount: 0 };
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [draftLabs, setDraftLabs] = useState(currentConfig.labsCount);
   const [draftPracticals, setDraftPracticals] = useState(currentConfig.practicalsCount);
 
-  if (error) return <p role="alert">{error.message}</p>;
+
 
   const labItems = Array.from({ length: Number(currentConfig.labsCount) || 0 }, (_, i) => ({
     id: `LAB_${i + 1}`,
@@ -39,25 +39,19 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
     return Number(student.subgroup) !== Number(teacherSubgroup);
   };
 
-  const executeToggleWork = (student, work, isForeign) => {
-    const key = `${subjectId}_${student.id}_${work.id}`;
-    const nextValue = !completions[key];
-
-    const updated = { ...crossSubgroupMarks };
-    if (nextValue && isForeign) {
-      updated[key] = {
-        markedBySubgroup: teacherSubgroup,
-        markedByRole: isMainSheet ? 'Преподаватель 1-й п/г' : 'Преподаватель 2-й п/г'
-      };
-    } else {
-      delete updated[key];
-    }
-    save({ completions: { ...completions, [key]: nextValue }, crossMarks: updated });
+  const executeToggleWork = (student, work, isForeign, base = snapshot) => {
+    const value = !base.completions[journalId]?.[student.id]?.[work.id];
+    const crossMark = value && isForeign ? {
+      markedBySubgroup: teacherSubgroup,
+      markedByRole: isMainSheet ? 'Преподаватель 1-й п/г' : 'Преподаватель 2-й п/г'
+    } : null;
+    const result = save(base, { type: 'setWork', studentId: student.id, workId: work.id, value, crossMark });
+    setSaveError(result.error ?? null);
   };
 
   const handleToggleWork = (student, work) => {
     if (isForeignSubgroupStudent(student)) {
-      setPendingForeignToggle({ student, work });
+      setPendingForeignToggle({ student, work, base: snapshot });
       return;
     }
     executeToggleWork(student, work, false);
@@ -67,22 +61,18 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
     if (!pendingForeignToggle) return;
     const { student, work } = pendingForeignToggle;
     setPendingForeignToggle(null);
-    executeToggleWork(student, work, true);
+    executeToggleWork(student, work, true, pendingForeignToggle.base);
   };
 
   const handleSaveConfig = (e) => {
     e.preventDefault();
     const lCount = Math.max(0, Math.min(25, Number(draftLabs) || 0));
     const pCount = Math.max(0, Math.min(25, Number(draftPracticals) || 0));
-    const configs = {
-      ...allConfigs,
-      [subjectId]: {
-        initialized: lCount > 0 || pCount > 0,
-        labsCount: lCount,
-        practicalsCount: pCount
-      }
-    };
-    if (!save({ configs })) return;
+    const result = save(configBase, { type: 'setConfig', value: {
+      initialized: lCount > 0 || pCount > 0, labsCount: lCount, practicalsCount: pCount
+    } });
+    setSaveError(result.error ?? null);
+    if (!result.ok) return;
     setIsSettingsOpen(false);
   };
 
@@ -103,6 +93,7 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
 
         <button
           onClick={() => {
+            setConfigBase(snapshot);
             setDraftLabs(currentConfig.labsCount);
             setDraftPracticals(currentConfig.practicalsCount);
             setIsSettingsOpen((prev) => !prev);
@@ -113,6 +104,9 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
         </button>
       </div>
 
+      {isSettingsOpen && saveError?.code === 'conflict' && <button onClick={() => {
+        setConfigBase(snapshot); setSaveError(null);
+      }}>Сверить с текущей настройкой (ЛАБ: {currentConfig.labsCount}, ПР: {currentConfig.practicalsCount}) и продолжить</button>}
       {isSettingsOpen && (
         <form onSubmit={handleSaveConfig} className="p-4 bg-[#F4E8D4] dark:bg-[#22201B] border-b border-[var(--line)] flex flex-wrap items-end gap-4">
           <div>
@@ -167,7 +161,7 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
             Для этого предмета количество лабораторных и практических работ пока равно 0.
           </p>
           <button
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={() => { setConfigBase(snapshot); setDraftLabs(currentConfig.labsCount); setDraftPracticals(currentConfig.practicalsCount); setIsSettingsOpen(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-[#244b3c] text-white text-xs font-bold rounded-lg hover:bg-emerald-900 cursor-pointer"
           >
             <span>Задать количество работ</span>
@@ -208,7 +202,7 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
             <tbody>
               {students.map((student, idx) => {
                 const completedCount = allWorks.filter(
-                  (w) => completions[`${subjectId}_${student.id}_${w.id}`]
+                  (w) => completions[student.id]?.[w.id]
                 ).length;
                 const totalWorks = allWorks.length;
                 const progressPercent = totalWorks > 0 ? Math.round((completedCount / totalWorks) * 100) : 0;
@@ -236,9 +230,8 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
                     </td>
 
                     {allWorks.map((work) => {
-                      const key = `${subjectId}_${student.id}_${work.id}`;
-                      const isDone = Boolean(completions[key]);
-                      const crossInfo = crossSubgroupMarks[key];
+                      const isDone = Boolean(completions[student.id]?.[work.id]);
+                      const crossInfo = crossSubgroupMarks[student.id]?.[work.id];
 
                       return (
                         <td
