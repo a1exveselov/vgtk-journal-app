@@ -4,15 +4,15 @@ import JournalTable from '../components/journal/JournalTable';
 
 export default function JournalSheetPage() {
   const { sheetId } = useParams();
-  const sheet = currentUser.teachingSubjects.find((entry) => entry.sheetId === sheetId) || {
-    subjectId: 'subj-kp',
-    subjectName: 'Конструирование программ и языки программирования',
-    isMain: !sheetId.endsWith('sub2') && sheetId !== 'sheet-2',
-  };
+  const sheet = currentUser.teachingSubjects.find((entry) => entry.sheetId === sheetId);
   return (
     <div className="sheet-page">
       <Link to="/" className="back-link">← К расписанию</Link>
-      <JournalTable key={sheetId} sheetId={sheetId} subjectId={sheet.subjectId} subjectName={sheet.subjectName} isMainSheet={sheet.isMain} />
+      {sheet ? (
+        <JournalTable key={sheetId} sheetId={sheetId} subjectId={sheet.subjectId} subjectName={sheet.subjectName} isMainSheet={sheet.isMain} />
+      ) : (
+        <header className="sheet-heading"><h1>Журнал не найден</h1></header>
+      )}
     </div>
   );
 }

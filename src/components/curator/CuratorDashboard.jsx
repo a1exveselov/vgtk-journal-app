@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useJournal } from '../../data/journalRepository';
+import { useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { mockStudents, mockGrades, mockLessons, currentUser } from '../../mocks/initialData';
+import { currentUser } from '../../mocks/initialData';
 import ScheduleWidget from '../dashboard/ScheduleWidget';
 
 const ABSENCE_TYPES = [
@@ -44,6 +45,8 @@ const ABSENCE_TYPES = [
 
 const HOURS_PRESETS = [1, 2, 3, 4, 6, 8];
 
+const journalKeys = ['students', 'lessons', 'grades', 'overrides'];
+
 export default function CuratorDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   
@@ -54,50 +57,15 @@ export default function CuratorDashboard() {
   const [deptHead, setDeptHead] = useState(currentUser.departmentHead || 'Н.Е. Дасько');
   const [curatorName, setCuratorName] = useState(currentUser.curatorShortName || 'И.И. Иванов');
 
-  const [students] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_students');
-      return saved ? JSON.parse(saved) : mockStudents;
-    } catch {
-      return mockStudents;
-    }
-  });
-
-  const [lessons] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_lessons');
-      return saved ? JSON.parse(saved) : mockLessons;
-    } catch {
-      return mockLessons;
-    }
-  });
-
-  const [grades] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_grades');
-      return saved ? JSON.parse(saved) : mockGrades;
-    } catch {
-      return mockGrades;
-    }
-  });
+  const { data, error, save, saveError } = useJournal(journalKeys);
+  const { students, lessons, grades, overrides: curatorOverrides } = data;
 
   const [selectedReason, setSelectedReason] = useState('Б');
   const [hoursMode, setHoursMode] = useState('auto');
   const [customHoursInput, setCustomHoursInput] = useState(2);
   const [toolAction, setToolAction] = useState('stamp');
 
-  const [curatorOverrides, setCuratorOverrides] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_form6_overrides');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_form6_overrides', JSON.stringify(curatorOverrides));
-  }, [curatorOverrides]);
+  if (error) return <p role="alert">{error.message}</p>;
 
   const daysInMonth = Array.from({ length: 31 }, (_, i) => i + 1);
 
@@ -146,37 +114,21 @@ export default function CuratorDashboard() {
     const currentEntry = getCellEntry(studentId, day);
     const journalHours = journalHoursMap[key] || 0;
 
-    setCuratorOverrides((prev) => {
-      const updated = { ...prev };
-      if (toolAction === 'eraser') {
-        updated[key] = { cleared: true };
-        return updated;
-      }
-      if (toolAction === 'resetToJournal') {
-        delete updated[key];
-        return updated;
-      }
-      if (selectedReason === 'Сп') {
-        updated[key] = { reason: 'Сп', customHours: null, cleared: false };
-        return updated;
-      }
-      if (hoursMode === 'auto') {
-        const existingHours = currentEntry?.hours || journalHours;
-        updated[key] = {
-          reason: selectedReason,
-          customHours: existingHours > 0 ? existingHours : 2,
-          cleared: false
-        };
-        return updated;
-      }
-      const targetHours = Number(customHoursInput) || 2;
-      updated[key] = {
-        reason: selectedReason,
-        customHours: targetHours,
-        cleared: false
-      };
-      return updated;
-    });
+    const updated = { ...curatorOverrides };
+    if (toolAction === 'eraser') {
+      updated[key] = { cleared: true };
+    } else if (toolAction === 'resetToJournal') {
+      delete updated[key];
+    } else if (selectedReason === 'Сп') {
+      updated[key] = { reason: 'Сп', customHours: null, cleared: false };
+    } else {
+      const existingHours = currentEntry?.hours || journalHours;
+      const customHours = hoursMode === 'auto'
+        ? (existingHours > 0 ? existingHours : 2)
+        : Number(customHoursInput) || 2;
+      updated[key] = { reason: selectedReason, customHours, cleared: false };
+    }
+    save({ overrides: updated });
   };
 
   const getForm6StudentTotals = (studentId) => {
@@ -367,6 +319,7 @@ export default function CuratorDashboard() {
 
   return (
     <div className="space-y-6">
+      {saveError && <p role="alert">{saveError.message}</p>}
       <header className="page-heading">
         <div><p className="section-kicker">Кабинет куратора</p><h1>Группа {groupName}</h1></div>
         <div className="section-tabs" role="group" aria-label="Раздел кабинета">

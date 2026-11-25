@@ -50,12 +50,11 @@ export default function AddLessonModal({
       hours: Number(formData.hours),
       date: formattedDate,
       day,
-      createdByMain: true,
       isSubgroupOnly: formData.type === 'ПР' || formData.type === 'ЛАБ'
     };
 
     if (mode === 'edit' && initialLesson) {
-      onUpdate({ ...initialLesson, ...payload });
+      onUpdate(payload);
     } else {
       onAdd(payload);
     }

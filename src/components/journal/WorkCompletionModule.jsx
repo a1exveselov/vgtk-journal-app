@@ -1,72 +1,23 @@
+import { useJournal } from '../../data/journalRepository';
 import JournalDialog from '../ui/JournalDialog';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Check, AlertTriangle, X } from 'lucide-react';
 
-const DEFAULT_SUBJECT_CONFIGS = {
-  'subj-kp': { initialized: true, labsCount: 4, practicalsCount: 3 },
-  'subj-db': { initialized: true, labsCount: 5, practicalsCount: 2 },
-  'subj-web': { initialized: true, labsCount: 6, practicalsCount: 0 }
-};
+const journalKeys = ['configs', 'completions', 'crossMarks'];
 
 export default function WorkCompletionModule({ students, isMainSheet, subjectId = 'subj-kp' }) {
   const teacherSubgroup = isMainSheet ? 1 : 2;
   const [pendingForeignToggle, setPendingForeignToggle] = useState(null);
 
-  const [allConfigs, setAllConfigs] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_works_config_by_subject');
-      return saved ? JSON.parse(saved) : DEFAULT_SUBJECT_CONFIGS;
-    } catch {
-      return DEFAULT_SUBJECT_CONFIGS;
-    }
-  });
-
-  const [completions, setCompletions] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_works_completion_by_subject');
-      return saved
-        ? JSON.parse(saved)
-        : {
-            'subj-kp_s1_LAB_1': true,
-            'subj-kp_s1_LAB_2': true,
-            'subj-kp_s1_PR_1': true,
-            'subj-kp_s4_LAB_1': true,
-            'subj-db_s1_LAB_1': true,
-            'subj-web_s1_LAB_1': true,
-            'subj-web_s6_LAB_1': true
-          };
-    } catch {
-      return {};
-    }
-  });
-
-  // Хранилище пометок о том, что сдача работы была выставлена не своей подгруппе
-  const [crossSubgroupMarks, setCrossSubgroupMarks] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_works_cross_marks');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  const currentConfig = allConfigs[subjectId] || { initialized: true, labsCount: 3, practicalsCount: 2 };
+  const { data, error, save, saveError } = useJournal(journalKeys);
+  const { configs: allConfigs, completions, crossMarks: crossSubgroupMarks } = data;
+  const currentConfig = allConfigs?.[subjectId] || { initialized: false, labsCount: 0, practicalsCount: 0 };
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [draftLabs, setDraftLabs] = useState(currentConfig.labsCount);
   const [draftPracticals, setDraftPracticals] = useState(currentConfig.practicalsCount);
 
-  useEffect(() => {
-    localStorage.setItem('vgtk_works_config_by_subject', JSON.stringify(allConfigs));
-  }, [allConfigs]);
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_works_completion_by_subject', JSON.stringify(completions));
-  }, [completions]);
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_works_cross_marks', JSON.stringify(crossSubgroupMarks));
-  }, [crossSubgroupMarks]);
+  if (error) return <p role="alert">{error.message}</p>;
 
   const labItems = Array.from({ length: Number(currentConfig.labsCount) || 0 }, (_, i) => ({
     id: `LAB_${i + 1}`,
@@ -92,23 +43,16 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
     const key = `${subjectId}_${student.id}_${work.id}`;
     const nextValue = !completions[key];
 
-    setCompletions((prev) => ({
-      ...prev,
-      [key]: nextValue
-    }));
-
-    setCrossSubgroupMarks((prev) => {
-      const updated = { ...prev };
-      if (nextValue && isForeign) {
-        updated[key] = {
-          markedBySubgroup: teacherSubgroup,
-          markedByRole: isMainSheet ? 'Преподаватель 1-й п/г' : 'Преподаватель 2-й п/г'
-        };
-      } else {
-        delete updated[key];
-      }
-      return updated;
-    });
+    const updated = { ...crossSubgroupMarks };
+    if (nextValue && isForeign) {
+      updated[key] = {
+        markedBySubgroup: teacherSubgroup,
+        markedByRole: isMainSheet ? 'Преподаватель 1-й п/г' : 'Преподаватель 2-й п/г'
+      };
+    } else {
+      delete updated[key];
+    }
+    save({ completions: { ...completions, [key]: nextValue }, crossMarks: updated });
   };
 
   const handleToggleWork = (student, work) => {
@@ -130,19 +74,21 @@ export default function WorkCompletionModule({ students, isMainSheet, subjectId 
     e.preventDefault();
     const lCount = Math.max(0, Math.min(25, Number(draftLabs) || 0));
     const pCount = Math.max(0, Math.min(25, Number(draftPracticals) || 0));
-    setAllConfigs((prev) => ({
-      ...prev,
+    const configs = {
+      ...allConfigs,
       [subjectId]: {
         initialized: lCount > 0 || pCount > 0,
         labsCount: lCount,
         practicalsCount: pCount
       }
-    }));
+    };
+    if (!save({ configs })) return;
     setIsSettingsOpen(false);
   };
 
   return (
     <div className="bg-[var(--card)] rounded-sm border border-[var(--line)] overflow-hidden transition-colors duration-300">
+      {saveError && <p role="alert">{saveError.message}</p>}
       <div className="p-4 border-b border-[var(--line)] bg-[var(--soft)] flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
         <div className="flex items-center gap-2.5">
           <div>

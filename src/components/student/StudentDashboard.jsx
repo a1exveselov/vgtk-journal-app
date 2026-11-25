@@ -1,6 +1,6 @@
+import { getGradeHourIndex, getLessonSubjectId, useJournal } from '../../data/journalRepository';
 import { useState } from 'react';
 import { CheckCircle2, AlertTriangle } from 'lucide-react';
-import { mockStudents, mockLessons, mockGrades } from '../../mocks/initialData';
 import ScheduleWidget from '../dashboard/ScheduleWidget';
 import { getLessonTimestamp } from '../journal/lessonDate';
 
@@ -21,12 +21,6 @@ const SUBJECTS_CATALOG = [
     teacher: '1 п/г: Иванов И. И. / 2 п/г: Козлов Д. С.'
   }
 ];
-
-const DEFAULT_SUBJECT_CONFIGS = {
-  'subj-kp': { initialized: true, labsCount: 4, practicalsCount: 3 },
-  'subj-db': { initialized: true, labsCount: 5, practicalsCount: 2 },
-  'subj-web': { initialized: true, labsCount: 6, practicalsCount: 0 }
-};
 
 const ABSENCE_TYPES = [
   {
@@ -67,101 +61,24 @@ const ABSENCE_TYPES = [
   },
 ];
 
+const journalKeys = ['students', 'lessons', 'grades', 'overrides', 'configs', 'completions'];
+
 export default function StudentDashboard() {
-  const [students] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_students');
-      return saved ? JSON.parse(saved) : mockStudents;
-    } catch {
-      return mockStudents;
-    }
-  });
-
-  const [lessons] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_lessons');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const hasNewMocks = parsed.some((l) => l.subjectId === 'subj-db');
-        const normalized = parsed.map((l) => ({ ...l, subjectId: l.subjectId || 'subj-kp' }));
-        if (!hasNewMocks) {
-          const extraMocks = mockLessons.filter((m) => m.subjectId !== 'subj-kp');
-          return [...normalized, ...extraMocks];
-        }
-        return normalized;
-      }
-      return mockLessons;
-    } catch {
-      return mockLessons;
-    }
-  });
-
-  const [grades] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_grades');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const hasDbGrades = parsed.some((g) => g.lessonId === 'db1');
-        if (!hasDbGrades) {
-          const extraGrades = mockGrades.filter(
-            (g) => g.lessonId.startsWith('db') || g.lessonId.startsWith('web')
-          );
-          return [...parsed, ...extraGrades];
-        }
-        return parsed;
-      }
-      return mockGrades;
-    } catch {
-      return mockGrades;
-    }
-  });
-
-  const [curatorOverrides] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_form6_overrides');
-      return saved ? JSON.parse(saved) : {};
-    } catch {
-      return {};
-    }
-  });
-
-  const [worksConfigsBySubject] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_works_config_by_subject');
-      return saved ? JSON.parse(saved) : DEFAULT_SUBJECT_CONFIGS;
-    } catch {
-      return DEFAULT_SUBJECT_CONFIGS;
-    }
-  });
-
-  const [worksCompletionsBySubject] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_works_completion_by_subject');
-      return saved
-        ? JSON.parse(saved)
-        : {
-            'subj-kp_s1_LAB_1': true,
-            'subj-kp_s1_LAB_2': true,
-            'subj-kp_s1_PR_1': true,
-            'subj-kp_s4_LAB_1': true,
-            'subj-db_s1_LAB_1': true,
-            'subj-web_s1_LAB_1': true,
-            'subj-web_s6_LAB_1': true
-          };
-    } catch {
-      return {};
-    }
-  });
-
+  const { data, error } = useJournal(journalKeys);
+  const { students = [], lessons, grades, overrides: curatorOverrides,
+    configs: worksConfigsBySubject, completions: worksCompletionsBySubject } = data;
   const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || 's1');
   const [activeTab, setActiveTab] = useState('grades');
   const [selectedSubjectId, setSelectedSubjectId] = useState('subj-kp');
 
   const currentStudent = students.find((s) => s.id === selectedStudentId) || students[0];
 
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!currentStudent) return <p>В журнале нет учащихся.</p>;
+
   const subjectsStats = SUBJECTS_CATALOG.map((subject) => {
     const subjLessons = lessons
-      .filter((l) => (l.subjectId || 'subj-kp') === subject.subjectId)
+      .filter((l) => getLessonSubjectId(l) === subject.subjectId)
       .sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
 
     const subjLessonIds = subjLessons.map((l) => l.id);
@@ -298,7 +215,7 @@ export default function StudentDashboard() {
           <p>Группа {currentStudent?.groupName || 'ПО-31'} · {currentStudent?.subgroup}-я подгруппа</p>
         </div>
         <label className="field-label">Учащийся
-          <select value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)}>
+          <select value={currentStudent.id} onChange={(e) => setSelectedStudentId(e.target.value)}>
             {students.map((st) => <option key={st.id} value={st.id}>{st.fullName} ({st.subgroup} п/г)</option>)}
           </select>
         </label>
@@ -362,11 +279,11 @@ export default function StudentDashboard() {
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       {positiveGrades.length > 0 ? (
-                        positiveGrades.map((g, idx) => {
+                        positiveGrades.map((g) => {
                           const lesson = subj.lessons.find((l) => l.id === g.lessonId);
                           return (
                             <div
-                              key={`${g.lessonId}-${g.hourIndex || idx}`}
+                              key={`${g.lessonId}-${getGradeHourIndex(g)}`}
                               title={lesson?.topic ? `${lesson.date} (${lesson.type}): ${lesson.topic}` : ''}
                               className="flex flex-col items-center px-3 py-1.5 rounded-sm bg-[#F3EFE8] dark:bg-[#22262E] border border-[#D8D1C5] dark:border-[#323844] min-w-[64px]"
                             >

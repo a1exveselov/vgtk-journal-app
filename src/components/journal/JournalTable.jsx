@@ -1,11 +1,13 @@
+import { getGradeHourIndex, getLessonSubjectId, useJournal } from '../../data/journalRepository';
 import JournalDialog from '../ui/JournalDialog';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { AlertTriangle, X, Check } from 'lucide-react';
-import { mockStudents, mockLessons, mockGrades } from '../../mocks/initialData';
 import AddLessonModal from './AddLessonModal';
 import { getLessonTimestamp } from './lessonDate';
 import SubgroupManagerModal from './SubgroupManagerModal';
 import WorkCompletionModule from './WorkCompletionModule';
+
+const journalKeys = ['students', 'lessons', 'grades'];
 
 export default function JournalTable({
   sheetId,
@@ -28,67 +30,10 @@ export default function JournalTable({
     ? 'Преподаватель 1-й подгруппы (Главный)'
     : 'Преподаватель 2-й подгруппы';
 
-  const [students, setStudents] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_students');
-      return saved ? JSON.parse(saved) : mockStudents;
-    } catch {
-      return mockStudents;
-    }
-  });
-
-  const [allLessons, setAllLessons] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_lessons');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const hasNewMocks = parsed.some((l) => l.subjectId === 'subj-db');
-        const normalized = parsed.map((l) => ({ ...l, subjectId: l.subjectId || 'subj-kp' }));
-        if (!hasNewMocks) {
-          const extraMocks = mockLessons.filter((m) => m.subjectId !== 'subj-kp');
-          return [...normalized, ...extraMocks];
-        }
-        return normalized;
-      }
-      return mockLessons;
-    } catch {
-      return mockLessons;
-    }
-  });
-
-  const [grades, setGrades] = useState(() => {
-    try {
-      const saved = localStorage.getItem('vgtk_grades');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const hasDbGrades = parsed.some((g) => g.lessonId === 'db1');
-        if (!hasDbGrades) {
-          const extraGrades = mockGrades.filter(
-            (g) => g.lessonId.startsWith('db') || g.lessonId.startsWith('web')
-          );
-          return [...parsed, ...extraGrades];
-        }
-        return parsed;
-      }
-      return mockGrades;
-    } catch {
-      return mockGrades;
-    }
-  });
-
+  const { data, error, save, saveError } = useJournal(journalKeys);
+  const { students, lessons: allLessons, grades } = data;
   const [editingCell, setEditingCell] = useState(null);
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_students', JSON.stringify(students));
-  }, [students]);
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_lessons', JSON.stringify(allLessons));
-  }, [allLessons]);
-
-  useEffect(() => {
-    localStorage.setItem('vgtk_grades', JSON.stringify(grades));
-  }, [grades]);
+  if (error) return <p role="alert">{error.message}</p>;
 
   const isSubgroupLesson = (lesson) => {
     return lesson.type === 'ПР' || lesson.type === 'ЛАБ' || lesson.isSubgroupOnly;
@@ -96,37 +41,42 @@ export default function JournalTable({
 
   // Оба преподавателя видят все занятия предмета и весь список группы
   const lessons = allLessons
-    .filter((lesson) => (lesson.subjectId || 'subj-kp') === subjectId)
+    .filter((lesson) => getLessonSubjectId(lesson) === subjectId)
     .sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
 
   const visibleStudents = students;
 
   const handleAddLesson = (newLessonData) => {
     const newLesson = {
-      id: `l${Date.now()}`,
-      subjectId: subjectId,
-      sheetId: sheetId,
-      createdByMain: isMainSheet,
       isSubgroupOnly: newLessonData.type === 'ПР' || newLessonData.type === 'ЛАБ',
       ...newLessonData,
+      id: `l${Date.now()}`,
+      subjectId,
+      sheetId,
+      createdByMain: isMainSheet,
     };
-    setAllLessons((prev) => [...prev, newLesson]);
+    save({ lessons: [...allLessons, newLesson] });
   };
 
-  const handleUpdateLesson = (updatedLesson) => {
-    setAllLessons((prev) =>
-      prev.map((l) => (l.id === updatedLesson.id ? { ...updatedLesson, subjectId } : l))
-    );
-    if (Number(updatedLesson.hours) === 1) {
-      setGrades((prev) =>
-        prev.filter((g) => !(g.lessonId === updatedLesson.id && g.hourIndex === 2))
-      );
+  const handleUpdateLesson = ({ date, rawDate, day, type, hours, topic, homework, isSubgroupOnly }) => {
+    if (!selectedLesson) return;
+    const lessonId = selectedLesson.id;
+    const changes = {
+      lessons: allLessons.map((lesson) => lesson.id === lessonId
+        ? { ...lesson, date, rawDate, day, type, hours, topic, homework, isSubgroupOnly }
+        : lesson)
+    };
+    if (Number(hours) === 1) {
+      changes.grades = grades.filter((g) => !(g.lessonId === lessonId && getGradeHourIndex(g) === 2));
     }
+    save(changes);
   };
 
   const handleDeleteLesson = (lessonId) => {
-    setAllLessons((prev) => prev.filter((l) => l.id !== lessonId));
-    setGrades((prev) => prev.filter((g) => g.lessonId !== lessonId));
+    save({
+      lessons: allLessons.filter((lesson) => lesson.id !== lessonId),
+      grades: grades.filter((grade) => grade.lessonId !== lessonId)
+    });
   };
 
   // Проверка: относится ли учащийся к чужой подгруппе для текущего преподавателя
@@ -170,7 +120,7 @@ export default function JournalTable({
   const handleSaveGrade = (student, lessonId, hourIndex, value) => {
     const cleanValue = value.trim().toUpperCase();
     const filteredGrades = grades.filter(
-      (g) => !(g.studentId === student.id && g.lessonId === lessonId && (g.hourIndex || 1) === hourIndex)
+      (g) => !(g.studentId === student.id && g.lessonId === lessonId && getGradeHourIndex(g) === hourIndex)
     );
 
     const isCross = isForeignSubgroupStudent(student);
@@ -186,33 +136,16 @@ export default function JournalTable({
           markedByRole: teacherRoleLabel
         };
 
-    if (cleanValue === '') {
-      setGrades(filteredGrades);
-    } else if (cleanValue === 'Н') {
-      setGrades([
-        ...filteredGrades,
-        {
-          lessonId,
-          hourIndex,
-          studentId: student.id,
-          grade: null,
-          attendance: 'ABSENT',
-          ...crossMeta
-        }
-      ]);
-    } else {
-      setGrades([
-        ...filteredGrades,
-        {
-          lessonId,
-          hourIndex,
-          studentId: student.id,
-          grade: cleanValue,
-          attendance: 'PRESENT',
-          ...crossMeta
-        }
-      ]);
+    if (cleanValue !== '') {
+      const absent = cleanValue === 'Н';
+      filteredGrades.push({
+        lessonId, hourIndex, studentId: student.id,
+        grade: absent ? null : cleanValue,
+        attendance: absent ? 'ABSENT' : 'PRESENT',
+        ...crossMeta
+      });
     }
+    save({ grades: filteredGrades });
     setEditingCell(null);
   };
 
@@ -258,6 +191,7 @@ export default function JournalTable({
 
   return (
     <div className="space-y-6">
+      {saveError && <p role="alert">{saveError.message}</p>}
       <header className="sheet-heading">
         <p className="section-kicker">Группа ПО-31 · {isMainSheet ? 'Основной лист' : '2-я подгруппа'}</p>
         <h1>{subjectName}</h1>
@@ -397,7 +331,7 @@ export default function JournalTable({
                         (g) =>
                           g.studentId === student.id &&
                           g.lessonId === lesson.id &&
-                          (g.hourIndex || 1) === hourIndex
+                          getGradeHourIndex(g) === hourIndex
                       );
 
                       let displayValue = '';
@@ -646,7 +580,7 @@ export default function JournalTable({
       {isSubgroupModalOpen && <SubgroupManagerModal
         onClose={() => setIsSubgroupModalOpen(false)}
         students={students}
-        onSave={setStudents}
+        onSave={(updated) => save({ students: updated })}
       />}
     </div>
   );
