@@ -1,3 +1,6 @@
+import { dateFields, isCalendarDate, lessonDate } from './period.js';
+import { validOverride } from './attendance.js';
+
 // Доменные ошибки перехватываются на границе публичного API репозитория.
 export class JournalScopeError extends Error {
   constructor(key, message) {
@@ -83,6 +86,9 @@ export function buildScopeIndex(catalog, data) {
     requireScope(sameAssignment(lesson, index.journals.get(lesson.journalId)) &&
       (lesson.sheetId === undefined || index.sheets.get(lesson.sheetId)?.journalId === lesson.journalId),
     'lessons', `Назначение занятия ${lesson.id} расходится с журналом.`);
+    requireScope(lesson.isoDate === undefined || (isCalendarDate(lesson.isoDate) &&
+      (lesson.rawDate === undefined || lesson.rawDate === lesson.isoDate)),
+    'lessons', 'Проверьте полную дату занятия и rawDate.');
     requireScope([1, 2].includes(lesson.hours), 'lessons', 'Занятие должно содержать один или два часа.');
   }
   const cells = new Set();
@@ -101,6 +107,17 @@ export function buildScopeIndex(catalog, data) {
     requireScope(cut > 0 && index.students.has(key.slice(0, cut)) &&
       /^(?:[1-9]|[12]\d|3[01])$/.test(key.slice(cut + 1)) && isRecord(value),
     'overrides', 'Некорректная ссылка формы № 6.');
+  }
+  const { entries, bindings } = data.byDate;
+  for (const [key, value] of Object.entries(entries)) {
+    const cut = key.lastIndexOf('_');
+    requireScope(index.students.has(key.slice(0, cut)) && isCalendarDate(key.slice(cut + 1)) && validOverride(value),
+      'byDate', 'Некорректная датированная корректировка формы № 6.');
+  }
+  for (const [key, date] of Object.entries(bindings)) {
+    requireScope(Object.hasOwn(data.overrides, key) && isCalendarDate(date) &&
+      Number(key.slice(key.lastIndexOf('_') + 1)) === Number(date.slice(8)),
+    'byDate', 'Некорректная привязка исходной корректировки.');
   }
   for (const [id, cfg] of Object.entries(data.configs)) {
     requireScope(index.journals.has(id) && isRecord(cfg) && typeof cfg.initialized === 'boolean' &&
@@ -126,7 +143,8 @@ export function selectScope(index, data, context) {
   const journalIds = new Set(journals.map(j => j.id));
   const students = student ? [student] : data.students.filter(s => s.groupId === group.id);
   const studentIds = new Set(students.map(s => s.id));
-  const lessons = data.lessons.filter(l => journalIds.has(l.journalId));
+  const lessons = data.lessons.filter(l => journalIds.has(l.journalId)).map(l =>
+    lessonDate(l) ? { ...l, ...dateFields(lessonDate(l)) } : l);
   const lessonIds = new Set(lessons.map(l => l.id));
   const entriesForJournals = (rows) => Object.entries(rows).filter(([key]) => journalIds.has(key));
   const works = (rows) => Object.fromEntries(entriesForJournals(rows).map(([key, perStudent]) =>
@@ -135,8 +153,10 @@ export function selectScope(index, data, context) {
     group, journal, sheet, journals, students, lessons,
     sheets: [...index.sheets.values()].filter(s => journalIds.has(s.journalId)),
     grades: data.grades.filter(g => studentIds.has(g.studentId) && lessonIds.has(g.lessonId)),
-    overrides: Object.fromEntries(Object.entries(data.overrides).filter(([key]) =>
+    overrides: Object.fromEntries(Object.entries(data.byDate.entries).filter(([key]) =>
       studentIds.has(key.slice(0, key.lastIndexOf('_'))))),
+    unassignedOverrides: Object.fromEntries(Object.entries(data.overrides).filter(([key]) =>
+      studentIds.has(key.slice(0, key.lastIndexOf('_'))) && !Object.hasOwn(data.byDate.bindings, key))),
     configs: Object.fromEntries(entriesForJournals(data.configs)),
     completions: works(data.completions), crossMarks: works(data.crossMarks)
   };

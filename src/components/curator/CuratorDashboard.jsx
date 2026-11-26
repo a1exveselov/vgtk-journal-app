@@ -1,3 +1,5 @@
+import { aggregateAttendance } from '../../data/attendance';
+import { initialPeriod, validPeriod } from '../../data/period';
 import { schemaNotice, useScopedRead } from '../../data/journalRepository';
 import { useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -47,6 +49,24 @@ const HOURS_PRESETS = [1, 2, 3, 4, 6, 8];
 
 const readGroup = (repository, groupId) => repository.read({ groupId });
 
+export function AttendancePeriodPicker({ period, onChange, monthlyOnly = false }) {
+  const change = (key, value) => onChange({ ...period, [key]: value });
+  return <fieldset className="flex flex-wrap items-end gap-3">
+    <legend className="field-label">Период посещаемости</legend>
+    {!monthlyOnly && <label>Период <select value={period.mode} onChange={e => change('mode', e.target.value)}>
+      <option value="month">Календарный месяц</option><option value="all">Весь период</option>
+      <option value="range">Диапазон дат</option>
+    </select></label>}
+    {period.mode === 'month' && <label>Месяц <input type="month" value={period.month}
+      onChange={e => change('month', e.target.value)} /></label>}
+    {period.mode === 'range' && <>
+      <label>С <input type="date" value={period.start} onChange={e => change('start', e.target.value)} /></label>
+      <label>По <input type="date" value={period.end} onChange={e => change('end', e.target.value)} /></label>
+    </>}
+    {!validPeriod(period) && <span role="alert">Укажите календарный месяц или обе границы диапазона в хронологическом порядке.</span>}
+  </fieldset>;
+}
+
 export default function CuratorDashboard() {
   const [groupId, setGroupId] = useState(currentUser.curatorGroupIds[0]);
   const [activeTab, setActiveTab] = useState('overview');
@@ -60,14 +80,18 @@ export default function CuratorDashboard() {
 
 function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab }) {
   const { snapshot, error, mutate, refresh } = useScopedRead(readGroup, group.id);
-  const [monthName, setMonthName] = useState('октябрь');
-  const [year, setYear] = useState('2026');
+  const [selection, setSelection] = useState(initialPeriod);
+  const period = activeTab === 'form6' ? { ...selection, mode: 'month' } : selection;
+  const [year, month] = period.month.split('-');
+  const monthName = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь',
+    'октябрь', 'ноябрь', 'декабрь'][Number(month) - 1] ?? '';
   const [course, setCourse] = useState(currentUser.course || 3);
   const [groupName, setGroupName] = useState(group.name);
   const [deptHead, setDeptHead] = useState(currentUser.departmentHead || 'Н.Е. Дасько');
   const [curatorName, setCuratorName] = useState(currentUser.curatorShortName || 'И.И. Иванов');
 
   const [failedEdit, setFailedEdit] = useState(null);
+  const [bindingDrafts, setBindingDrafts] = useState({});
   const [selectedReason, setSelectedReason] = useState('Б');
   const [hoursMode, setHoursMode] = useState('auto');
   const [customHoursInput, setCustomHoursInput] = useState(2);
@@ -78,7 +102,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
     curatorName !== (currentUser.curatorShortName || 'И.И. Иванов');
   const changeGroup = (id) => {
     if (!groups.some(g => g.id === id)) return;
-    if ((printDraft || failedEdit || hoursMode === 'manual') &&
+    if ((printDraft || failedEdit || Object.keys(bindingDrafts).length > 0 || hoursMode === 'manual') &&
       !window.confirm('Сбросить черновик этой группы и переключиться?')) return;
     onGroupChange(id);
   };
@@ -90,65 +114,33 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
     </label>
   );
   if (error) return <>{picker}<p role="alert">{error.message} <button onClick={refresh}>Перечитать</button></p></>;
-  const { students, lessons, grades, overrides: curatorOverrides, configs, completions } = snapshot;
+  const { students, lessons, grades, unassignedOverrides, configs, completions } = snapshot;
 
-  function saveOverride(command) {
-    const result = mutate(snapshot, command);
-    if (result.ok) setFailedEdit(null);
-    else {
+  function saveOverride(command, base = snapshot) {
+    const result = mutate(base, command);
+    if (result.ok) {
+      setFailedEdit(null);
+      if (command.type === 'bindOverride') {
+        setBindingDrafts(current => {
+          const next = { ...current };
+          delete next[command.studentId + '_' + command.day];
+          return next;
+        });
+      }
+    } else {
       setFailedEdit({ error: result.error, command });
       refresh();
     }
   }
 
-  const daysInMonth = Array.from({ length: 31 }, (_, i) => i + 1);
+  const attendance = aggregateAttendance(snapshot, period);
+  const daysInMonth = attendance.dates;
+  const getCellEntry = attendance.getEntry;
+  const getForm6StudentTotals = id => attendance.byStudent.get(id);
+  const groupForm6Totals = attendance.groupTotals;
 
-  const journalHoursMap = {};
-  grades.forEach((g) => {
-    if (g.attendance === 'ABSENT') {
-      const lesson = lessons.find((l) => l.id === g.lessonId);
-      const day = lesson?.day || parseInt(lesson?.date?.split('.')[0], 10);
-      if (day) {
-        const key = `${g.studentId}_${day}`;
-        journalHoursMap[key] = (journalHoursMap[key] || 0) + 1;
-      }
-    }
-  });
-
-  const getCellEntry = (studentId, day) => {
-    const key = `${studentId}_${day}`;
-    const journalHours = journalHoursMap[key] || 0;
-    const override = curatorOverrides[key];
-
-    if (override?.cleared) return null;
-    if (override?.reason === 'Сп') {
-      return { reason: 'Сп', hours: 0, journalHours, isManualHours: false };
-    }
-
-    const effectiveHours =
-      override?.customHours !== undefined && override?.customHours !== null
-        ? Number(override.customHours)
-        : journalHours;
-
-    if (effectiveHours <= 0) return null;
-
-    return {
-      reason: override?.reason || 'Н/У',
-      hours: effectiveHours,
-      journalHours,
-      isManualHours:
-        override?.customHours !== undefined &&
-        override?.customHours !== null &&
-        override.customHours !== journalHours
-    };
-  };
-
-  const handleCellClick = (studentId, day) => {
+  const handleCellClick = (studentId, date) => {
     if (failedEdit) return;
-    const key = `${studentId}_${day}`;
-    const currentEntry = getCellEntry(studentId, day);
-    const journalHours = journalHoursMap[key] || 0;
-
     let value;
     if (toolAction === 'eraser') {
       value = { cleared: true };
@@ -157,49 +149,18 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
     } else if (selectedReason === 'Сп') {
       value = { reason: 'Сп', customHours: null, cleared: false };
     } else {
-      const existingHours = currentEntry?.hours || journalHours;
-      const customHours = hoursMode === 'auto'
-        ? (existingHours > 0 ? existingHours : 2)
-        : Number(customHoursInput) || 2;
+      const customHours = hoursMode === 'auto' ? null : Number(customHoursInput);
+      if (hoursMode === 'manual' && (!Number.isInteger(customHours) || customHours < 1 || customHours > 16)) {
+        window.alert('Введите целое число часов от 1 до 16.');
+        return;
+      }
       value = { reason: selectedReason, customHours, cleared: false };
     }
-    saveOverride({ type: 'setOverride', studentId, day, value });
+    saveOverride({ type: 'setOverride', studentId, date, value });
   };
-
-  const getForm6StudentTotals = (studentId) => {
-    const totals = { 'Б': 0, 'О': 0, 'З': 0, 'К': 0, excusedTotal: 0, 'Н/У': 0, grandTotal: 0 };
-    daysInMonth.forEach((day) => {
-      const entry = getCellEntry(studentId, day);
-      if (!entry || entry.reason === 'Сп') return;
-      const h = Number(entry.hours) || 0;
-      if (['Б', 'О', 'З', 'К'].includes(entry.reason)) {
-        totals[entry.reason] += h;
-        totals.excusedTotal += h;
-      } else if (entry.reason === 'Н/У') {
-        totals['Н/У'] += h;
-      }
-      totals.grandTotal += h;
-    });
-    return totals;
-  };
-
-  const groupForm6Totals = students.reduce(
-    (acc, st) => {
-      const t = getForm6StudentTotals(st.id);
-      acc['Б'] += t['Б'];
-      acc['О'] += t['О'];
-      acc['З'] += t['З'];
-      acc['К'] += t['К'];
-      acc.excusedTotal += t.excusedTotal;
-      acc['Н/У'] += t['Н/У'];
-      acc.grandTotal += t.grandTotal;
-      return acc;
-    },
-    { 'Б': 0, 'О': 0, 'З': 0, 'К': 0, excusedTotal: 0, 'Н/У': 0, grandTotal: 0 }
-  );
 
   const handleDownloadForm6 = () => {
-    const daysHeaders = daysInMonth.map((d) => `<th style="width:20px; font-size:9pt;">${d}</th>`).join('');
+    const daysHeaders = daysInMonth.map((d) => `<th style="width:20px; font-size:9pt;">${Number(d.slice(8))}</th>`).join('');
     
     const rowsHtml = students.map((st, idx) => {
       const t = getForm6StudentTotals(st.id);
@@ -264,7 +225,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
               <tr>
                 <th rowspan="3" style="width:28px;">№ п.п.</th>
                 <th rowspan="3" style="width:150px;">ФИО</th>
-                <th colspan="31">Число</th>
+                <th colspan="${daysInMonth.length}">Число</th>
                 <th colspan="6">Пропуски</th>
                 <th rowspan="3" style="width:45px;">ВСЕГО</th>
               </tr>
@@ -285,7 +246,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
             <tbody>
               ${rowsHtml}
               <tr style="font-weight:bold;">
-                <td colspan="33" style="text-align:right; padding-right:8px;">Всего по группе:</td>
+                <td colspan="${daysInMonth.length + 2}" style="text-align:right; padding-right:8px;">Всего по группе:</td>
                 <td style="text-align:center;">${groupForm6Totals['Б']}</td>
                 <td style="text-align:center;">${groupForm6Totals['О']}</td>
                 <td style="text-align:center;">${groupForm6Totals['З']}</td>
@@ -368,7 +329,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
   return (
     <div className="space-y-6">
       {failedEdit && <div role="alert">
-        <p>{failedEdit.error.message} Проверьте запись за {failedEdit.command.day} число
+        <p>{failedEdit.error.message} Проверьте запись за {failedEdit.command.date}
           ({students.find(s => s.id === failedEdit.command.studentId)?.fullName || failedEdit.command.studentId}).</p>
         <button onClick={() => saveOverride(failedEdit.command)}>Повторить запись</button>{' · '}
         <button onClick={() => setFailedEdit(null)}>Отменить черновик</button>
@@ -382,13 +343,37 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
         </div>
       </header>
       <p className="text-xs">{schemaNotice}</p>
+      <AttendancePeriodPicker period={period} onChange={setSelection} monthlyOnly={activeTab === 'form6'} />
+      {lessons.some(l => !l.isoDate) && <p>Занятия без полной даты исключены из итогов.
+        Уточните дату в предметном журнале: {lessons.filter(l => !l.isoDate).map(l =>
+          (snapshot.sheets.find(s => s.journalId === l.journalId)?.subjectName || l.journalId) +
+          ' · ' + (l.rawDate || l.date || 'без даты') + ' (' + l.id + ')').join(', ')}.</p>}
+      {Object.keys(unassignedOverrides).length > 0 && <details>
+        <summary>Нераспределённые корректировки ({Object.keys(unassignedOverrides).length})</summary>
+        {Object.entries(unassignedOverrides).map(([key, entry]) => {
+          const cut = key.lastIndexOf('_');
+          const studentId = key.slice(0, cut);
+          const day = Number(key.slice(cut + 1));
+          return <form key={key} className="flex flex-wrap items-center gap-2" onSubmit={e => {
+            e.preventDefault();
+            saveOverride({ type: 'bindOverride', studentId, day, date: e.currentTarget.elements.date.value }, bindingDrafts[key] ?? snapshot);
+          }}>
+            <label>{students.find(s => s.id === studentId)?.fullName}, {day} число · {entry.cleared ? 'очищено' : entry.reason}
+              {entry.customHours != null && ` · ${entry.customHours} ч.`} — полная дата{' '}
+              <input type="date" name="date" required onChange={() =>
+                setBindingDrafts(current => ({ ...current, [key]: current[key] ?? snapshot }))} />
+            </label>
+            <button disabled={Boolean(failedEdit)}>Привязать дату</button>
+          </form>;
+        })}
+      </details>}
 
       {activeTab === 'overview' ? (
         <div className="space-y-6">
           <dl className="metric-strip">
             <div><dt>Учащихся в группе</dt><dd>{totalStudents}</dd></div>
             <div><dt>Средний балл</dt><dd>{groupAvg}</dd></div>
-            <div><dt>Пропущено за месяц</dt><dd>{groupForm6Totals.grandTotal} ч.</dd><small>Без уважительной причины {groupForm6Totals['Н/У']} ч.</small></div>
+            <div><dt>Пропущено за период</dt><dd>{groupForm6Totals.grandTotal} ч.</dd><small>Без уважительной причины {groupForm6Totals['Н/У']} ч.</small></div>
           </dl>
 
           <ScheduleWidget groupFilter={snapshot.group.name} />
@@ -491,27 +476,6 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
           <div className="bg-[var(--card)] p-5 rounded-sm border border-[var(--line)] shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 transition-colors duration-300">
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 w-full lg:w-auto">
               <div>
-                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Месяц</label>
-                <select
-                  value={monthName}
-                  onChange={(e) => setMonthName(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
-                >
-                  {['сентябрь', 'октябрь', 'ноябрь', 'декабрь', 'январь', 'февраль', 'март', 'апрель', 'май', 'июнь'].map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Год</label>
-                <input
-                  type="text"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                  className="mt-1 w-full px-2.5 py-1.5 text-sm bg-[#F3EFE8] dark:bg-[#22262E] text-stone-900 dark:text-zinc-100 border border-[#D8D1C5] dark:border-[#323844] rounded-lg font-medium outline-none"
-                />
-              </div>
-              <div>
                 <label className="block text-[11px] font-bold text-stone-600 dark:text-zinc-400 uppercase">Курс</label>
                 <input
                   type="number"
@@ -551,7 +515,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
             </div>
 
             <button
-              onClick={handleDownloadForm6}
+              disabled={!validPeriod(period)} onClick={handleDownloadForm6}
               className="flex items-center gap-2 px-5 py-2.5 bg-[#244b3c] hover:bg-emerald-900 text-white text-sm font-bold rounded-sm shadow-sm border border-amber-400/30 transition-all cursor-pointer shrink-0"
             >
               <span>Скачать Форму №6 (.doc)</span>
@@ -692,7 +656,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
                     <th rowSpan={3} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-3 py-2 text-left sticky left-0 bg-[var(--soft)] z-10 min-w-[170px]">
                       ФИО учащегося
                     </th>
-                    <th colSpan={31} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1.5 text-center font-bold">
+                    <th colSpan={daysInMonth.length} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1.5 text-center font-bold">
                       Число месяца
                     </th>
                     <th colSpan={6} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1.5 text-center font-bold bg-[#E5DFD3] dark:bg-[#262B34]">
@@ -705,7 +669,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
                   <tr className="bg-[#F5F2EC] dark:bg-[#1E2128] text-stone-800 dark:text-zinc-200 border-b border-[#D8D1C5] dark:border-[#2E333D]">
                     {daysInMonth.map((day) => (
                       <th key={day} rowSpan={2} className="border-r border-[var(--line)] px-1 py-1 text-center font-bold min-w-[36px]">
-                        {day}
+                        {Number(day.slice(8))}
                       </th>
                     ))}
                     <th colSpan={5} className="border-r border-b border-[#D8D1C5] dark:border-[#2E333D] py-1 text-center font-bold bg-emerald-100/60 dark:bg-emerald-950/40 text-emerald-950 dark:text-emerald-300">
@@ -791,7 +755,7 @@ function CuratorGroup({ group, groups, onGroupChange, activeTab, setActiveTab })
                   })}
 
                   <tr className="bg-[var(--soft)] font-bold text-stone-900 dark:text-zinc-100 border-t-2 border-[#D8D1C5] dark:border-[#2E333D]">
-                    <td colSpan={33} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-4 py-2 text-right">
+                    <td colSpan={daysInMonth.length + 2} className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-4 py-2 text-right">
                       Всего по группе:
                     </td>
                     <td className="border-r border-[#D8D1C5] dark:border-[#2E333D] px-2 py-2 text-center">{groupForm6Totals['Б']}</td>

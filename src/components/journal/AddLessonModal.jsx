@@ -2,6 +2,7 @@ import JournalDialog from '../ui/JournalDialog';
 import { useRef, useState } from 'react';
 import { X, AlertTriangle, Check } from 'lucide-react';
 
+import { dateFields, isCalendarDate, lessonDate } from '../../data/period';
 import { getLessonTimestamp } from './lessonDate';
 
 export default function AddLessonModal({
@@ -40,9 +41,8 @@ export default function AddLessonModal({
   const [backdateWarning, setBackdateWarning] = useState(null);
 
   const [formData, setFormData] = useState(() => {
-    const [day, month] = (initialLesson?.date || '').split('.');
     return {
-      date: initialLesson?.rawDate || (day && month ? `2026-${month.padStart(2, '0')}-${day.padStart(2, '0')}` : ''),
+      date: lessonDate(initialLesson) ?? '',
       type: initialLesson?.type || 'ЛЕК',
       hours: initialLesson?.hours || 2,
       topic: initialLesson?.topic || '',
@@ -62,16 +62,10 @@ export default function AddLessonModal({
   };
 
   const commitSaveLesson = () => {
-    const dateObj = new Date(formData.date);
-    const day = dateObj.getDate();
-    const formattedDate = `${String(day).padStart(2, '0')}.${String(dateObj.getMonth() + 1).padStart(2, '0')}`;
-
     const payload = {
       ...formData,
-      rawDate: formData.date,
+      ...dateFields(formData.date),
       hours: Number(formData.hours),
-      date: formattedDate,
-      day,
       isSubgroupOnly: formData.type === 'ПР' || formData.type === 'ЛАБ'
     };
 
@@ -80,7 +74,7 @@ export default function AddLessonModal({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.date) return alert('Выберите дату');
+    if (!isCalendarDate(formData.date)) return setError({ message: 'Укажите существующую полную дату.' });
 
     const latestLesson = getLatestExistingLesson();
     if (latestLesson) {
@@ -89,7 +83,7 @@ export default function AddLessonModal({
 
       if (enteredTs < latestTs && !backdateWarning) {
         setBackdateWarning({
-          lastDateStr: latestLesson.date,
+          lastDateStr: lessonDate(latestLesson),
           lastType: latestLesson.type
         });
         return;
@@ -108,6 +102,10 @@ export default function AddLessonModal({
 
   return (
     <JournalDialog titleId="lesson" onDismiss={dismiss}>
+      {initialLesson && !lessonDate(initialLesson) && <p className="p-4">
+        Дата требует уточнения. Исходная запись: {initialLesson.rawDate || initialLesson.date || initialLesson.day || 'без даты'}.
+        Выберите «Редактировать» и укажите подтверждённую дату.
+      </p>}
       <fieldset disabled={saving} className="min-w-0">
         {saving && <p role="status">Сохранение…</p>}
         {error && <div role="alert" className="p-4">

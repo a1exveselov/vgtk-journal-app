@@ -4,6 +4,9 @@ import { createStorage } from './storage.js';
 import { buildScopeIndex, gradeHour, JournalScopeError, requireScope, selectScope,
   updateSubgroups, validateCell } from './journalScope.js';
 
+import { dateFields, isCalendarDate, lessonDate } from './period.js';
+import { validOverride } from './attendance.js';
+
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isRecordList = (value) => Array.isArray(value) && value.every(isObject);
 const definitions = {
@@ -86,11 +89,18 @@ const demoCatalog = {
   groups: mockGroups, journals: mockJournals, sheets: currentUser.teachingSubjects,
   curatorGroupIds: currentUser.curatorGroupIds
 };
+// Только исходный демонабор имеет подтверждённый год. Сохранённые строки могут совпадать с ним по ID.
+const datedDemoLessons = mockLessons.map(lesson => {
+  const [day, month] = lesson.date.split('.');
+  return { ...lesson, ...dateFields(`2026-${month}-${day}`) };
+});
 const v2 = {
   students: { key: 'vgtk_v2_students', defaultValue: mockStudents, valid: isRecordList },
-  lessons: { key: 'vgtk_v2_lessons', defaultValue: mockLessons, valid: isRecordList },
+  lessons: { key: 'vgtk_v2_lessons', defaultValue: datedDemoLessons, valid: isRecordList },
   grades: { key: 'vgtk_v2_grades', defaultValue: mockGrades, valid: isRecordList },
   overrides: { key: 'vgtk_v2_form6_overrides', defaultValue: {}, valid: isObject },
+  byDate: { key: 'vgtk_v2_form6_overrides_by_date', defaultValue: { entries: {}, bindings: {} },
+    valid: value => isObject(value) && isObject(value.entries) && isObject(value.bindings) },
   configs: {
     key: 'vgtk_v2_works_config_by_journal', valid: isObject,
     defaultValue: {
@@ -130,8 +140,18 @@ function lessonChanges(data, view, command) {
     };
   }
   requireScope(isObject(fields), 'lessons', 'Ожидались поля занятия.');
-  const editable = ['type', 'date', 'rawDate', 'day', 'hours', 'topic', 'homework', 'isSubgroupOnly'];
+  const editable = ['type', 'hours', 'topic', 'homework', 'isSubgroupOnly'];
   const patch = Object.fromEntries(Object.entries(fields).filter(([key]) => editable.includes(key)));
+  if (type === 'addLesson' || ['isoDate', 'rawDate', 'date', 'day'].some(field => Object.hasOwn(fields, field))) {
+    const date = fields.isoDate ?? fields.rawDate;
+    requireScope(isCalendarDate(date) && (fields.rawDate === undefined || fields.rawDate === date),
+      'lessons', 'Укажите полную календарную дату занятия.');
+    if (previous && !lessonDate(previous)) {
+      patch.originalDateFields = Object.fromEntries(['date', 'day', 'rawDate'].filter(k => Object.hasOwn(previous, k))
+        .map(k => [k, previous[k]]));
+    }
+    Object.assign(patch, dateFields(date));
+  }
   if (type === 'addLesson') {
     requireScope(sheet, 'context', 'Для создания занятия выберите лист преподавателя.');
     const lesson = { ...patch, id: lessonId, journalId: journal.id, groupId: journal.groupId,
@@ -155,15 +175,28 @@ function scopedChanges(data, view, context, command, catalog) {
     requireScope(journal, 'context', 'Выберите журнал для изменения подгрупп.');
     return { students: updateSubgroups(data.students, group.id, command.updates) };
   }
-  if (type === 'setOverride') {
+  if (type === 'setOverride' || type === 'bindOverride') {
     requireScope(context.groupId === group.id && catalog.curatorGroupIds.includes(group.id) && student,
       'overrides', 'Учащийся должен принадлежать выбранной группе куратора.');
-    requireScope(Number.isInteger(command.day) && command.day >= 1 && command.day <= 31 &&
-      (value === null || isObject(value)), 'overrides', 'Некорректная корректировка формы № 6.');
-    const key = `${studentId}_${command.day}`;
-    const overrides = { ...data.overrides, [key]: value };
-    if (value === null) delete overrides[key];
-    return { overrides };
+    const { date } = command;
+    requireScope(isCalendarDate(date), 'byDate', 'Укажите полную календарную дату корректировки.');
+    const key = studentId + '_' + date;
+    const { entries, bindings } = data.byDate;
+    if (type === 'bindOverride') {
+      const sourceKey = studentId + '_' + command.day;
+      requireScope(Number.isInteger(command.day) && command.day === Number(date.slice(8)) &&
+        Object.hasOwn(data.overrides, sourceKey), 'byDate', 'Выберите дату с числом исходной записи.');
+      if (bindings[sourceKey] === date) return {};
+      requireScope(!Object.hasOwn(bindings, sourceKey) && !Object.hasOwn(entries, key), 'byDate',
+        'Исходная запись уже распределена или дата занята корректировкой.');
+      const original = data.overrides[sourceKey];
+      requireScope(validOverride(original), 'byDate', 'Проверьте причину и часы в исходной корректировке.');
+      return { byDate: { entries: { ...entries, [key]: original }, bindings: { ...bindings, [sourceKey]: date } } };
+    }
+    requireScope(value === null || validOverride(value), 'byDate', 'Проверьте причину и количество часов.');
+    const updated = { ...entries, [key]: value };
+    if (value === null) delete updated[key];
+    return { byDate: { entries: updated, bindings } };
   }
   requireScope(journal, 'context', 'Выберите конкретный журнал или лист.');
   switch (type) {

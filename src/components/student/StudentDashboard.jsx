@@ -1,3 +1,6 @@
+import { aggregateAttendance } from '../../data/attendance';
+import { initialPeriod } from '../../data/period';
+import { AttendancePeriodPicker } from '../curator/CuratorDashboard';
 import { getGradeHourIndex, schemaNotice, useScopedRead } from '../../data/journalRepository';
 import { mockGroups } from '../../mocks/initialData';
 import { useState } from 'react';
@@ -80,11 +83,14 @@ export default function StudentDashboard() {
 function StudentJournal({ studentId, picker }) {
   const { snapshot, error, refresh } = useScopedRead(readStudent, studentId);
   const [activeTab, setActiveTab] = useState('grades');
+  const [period, setPeriod] = useState(initialPeriod);
   const [selectedJournalId, setSelectedJournalId] = useState(null);
 
   if (error) return <>{picker}<p role="alert">{error.message} <button onClick={refresh}>Перечитать</button></p></>;
   const { students: [currentStudent], group, journals, sheets, lessons, grades,
-    overrides: curatorOverrides, configs, completions } = snapshot;
+    unassignedOverrides, configs, completions } = snapshot;
+  const attendance = aggregateAttendance(snapshot, period);
+  const attendanceSummary = attendance.byStudent.get(studentId);
 
   const subjectsStats = journals.map((journal) => {
     const subjLessons = lessons
@@ -106,7 +112,7 @@ function StudentJournal({ studentId, picker }) {
       ? Number((numericValues.reduce((sum, v) => sum + v, 0) / numericValues.length).toFixed(2))
       : null;
 
-    const absentHours = subjGrades.filter((g) => g.attendance === 'ABSENT').length;
+    const absentHours = attendance.journalHours.get(journal.id) ?? 0;
 
     const cfg = configs[journal.id] || { labsCount: 0, practicalsCount: 0 };
     const labWorks = Array.from({ length: Number(cfg.labsCount) || 0 }, (_, i) => ({
@@ -149,63 +155,6 @@ function StudentJournal({ studentId, picker }) {
   const totalWorksAllSubjects = subjectsStats.reduce((sum, s) => sum + s.totalWorksCount, 0);
   const completedWorksAllSubjects = subjectsStats.reduce((sum, s) => sum + s.completedWorksCount, 0);
 
-  const daysInMonth = Array.from({ length: 31 }, (_, i) => i + 1);
-  const journalHoursByDay = {};
-  grades.forEach((g) => {
-    if (g.studentId === currentStudent.id && g.attendance === 'ABSENT') {
-      const lesson = lessons.find((l) => l.id === g.lessonId);
-      const day = lesson?.day || parseInt(lesson?.date?.split('.')[0], 10);
-      if (day) {
-        journalHoursByDay[day] = (journalHoursByDay[day] || 0) + 1;
-      }
-    }
-  });
-
-  const getStudentDayAbsence = (day) => {
-    const key = `${currentStudent.id}_${day}`;
-    const journalHours = journalHoursByDay[day] || 0;
-    const override = curatorOverrides[key];
-
-    if (override?.cleared) return null;
-    if (override?.reason === 'Сп') {
-      return { day, reason: 'Сп', hours: 0 };
-    }
-
-    const effectiveHours =
-      override?.customHours !== undefined && override?.customHours !== null
-        ? Number(override.customHours)
-        : journalHours;
-
-    if (effectiveHours <= 0) return null;
-
-    return {
-      day,
-      reason: override?.reason || 'Н/У',
-      hours: effectiveHours
-    };
-  };
-
-  const monthlyAbsences = daysInMonth.map(getStudentDayAbsence).filter(Boolean);
-
-  const attendanceSummary = monthlyAbsences.reduce(
-    (acc, item) => {
-      if (item.reason === 'Сп') {
-        acc.freeDays += 1;
-        return acc;
-      }
-      const h = Number(item.hours) || 0;
-      if (['Б', 'О', 'З', 'К'].includes(item.reason)) {
-        acc[item.reason] += h;
-        acc.excusedTotal += h;
-      } else {
-        acc['Н/У'] += h;
-      }
-      acc.grandTotal += h;
-      return acc;
-    },
-    { 'Б': 0, 'О': 0, 'З': 0, 'К': 0, excusedTotal: 0, 'Н/У': 0, grandTotal: 0, freeDays: 0 }
-  );
-
   const getBadgeColor = (avg) => {
     if (!avg) return 'bg-[var(--soft)] text-stone-500 dark:text-zinc-400 border-[#D8D1C5] dark:border-[#323844]';
     const num = parseFloat(avg);
@@ -229,6 +178,10 @@ function StudentJournal({ studentId, picker }) {
         {picker}
       </header>
       <p className="text-xs">{schemaNotice}</p>
+      <AttendancePeriodPicker period={period} onChange={setPeriod} />
+      {(lessons.some(l => !l.isoDate) || Object.keys(unassignedOverrides).length > 0) &&
+        <p>Вне календарных итогов: занятий без полной даты — {lessons.filter(l => !l.isoDate).length},
+          нераспределённых корректировок — {Object.keys(unassignedOverrides).length}.</p>}
       <dl className="metric-strip">
         <div><dt>Средний балл</dt><dd>{overallAvg || '—'}</dd><small>По {subjectsWithAvg.length} из {subjectsStats.length} дисциплин</small></div>
         <div><dt>Сдано работ</dt><dd>{completedWorksAllSubjects} <small>из {totalWorksAllSubjects}</small></dd></div>
@@ -258,7 +211,7 @@ function StudentJournal({ studentId, picker }) {
                   <div>
                     <h3 className="font-bold text-stone-900 dark:text-zinc-100 text-base">{subj.name}</h3>
                     <p className="text-xs text-stone-600 dark:text-zinc-400 mt-0.5">
-                      Преподаватель: {subj.teacher} • Пропусков по предмету: <b>{subj.absentHours} ч.</b>
+                      Преподаватель: {subj.teacher} • Исходные Н по предмету за период: <b>{subj.absentHours} ч.</b>
                     </p>
                   </div>
 
@@ -490,8 +443,8 @@ function StudentJournal({ studentId, picker }) {
 
             <div className="p-5">
               <div className="grid grid-cols-7 sm:grid-cols-11 md:grid-cols-16 gap-2">
-                {daysInMonth.map((day) => {
-                  const entry = getStudentDayAbsence(day);
+                {attendance.dates.map((day) => {
+                  const entry = attendance.getEntry(studentId, day);
                   const meta = ABSENCE_TYPES.find((t) => t.code === entry?.reason);
 
                   return (
@@ -503,7 +456,7 @@ function StudentJournal({ studentId, picker }) {
                           : 'bg-[#F3EFE8] dark:bg-[#22262E] border-[#E2DCD3] dark:border-[#2E333D] text-stone-500 dark:text-zinc-400'
                       }`}
                     >
-                      <span className="text-[11px] font-bold">{day} число</span>
+                      <span className="text-[11px] font-bold">{period.mode === 'month' ? Number(day.slice(8)) + ' число' : day}</span>
                       {entry ? (
                         <div className="mt-1">
                           <span className="text-sm font-extrabold block leading-tight">

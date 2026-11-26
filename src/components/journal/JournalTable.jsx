@@ -201,7 +201,7 @@ export default function JournalTable({ snapshot, save }) {
                     <th
                       key={lesson.id}
                       colSpan={hoursCount}
-                      title="Нажмите для просмотра темы и ДЗ"
+                      title={lesson.isoDate || 'Уточните дату занятия'}
                       className="px-2 py-2 text-center border-r border-b border-[#D8D1C5] dark:border-[#2E333D] cursor-pointer hover:bg-[#E5DFD3] dark:hover:bg-[#2A2F3A] transition-colors group/th select-none"
                     >
                       <button className="w-full flex flex-col items-center gap-1 relative cursor-pointer"
@@ -210,7 +210,7 @@ export default function JournalTable({ snapshot, save }) {
                         <span className="flex items-center gap-1">
                           <span className="text-[10px] text-stone-500 dark:text-zinc-400 font-bold">#{lessonIdx + 1}</span>
                           <span className="text-stone-900 dark:text-zinc-100 font-extrabold group-hover/th:text-emerald-900 dark:group-hover/th:text-amber-300 underline decoration-dotted underline-offset-2">
-                            {lesson.date}
+                            {lesson.date || 'Без даты'}{!lesson.isoDate && ' (?)'}
                           </span>
                           {hasDetails && <span title="Заполнены тема или задание" aria-label="Заполнены тема или задание">·</span>}
                         </span>

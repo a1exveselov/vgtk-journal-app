@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createScopedJournalRepository } from '../src/data/journalRepository.js';
 
+import { aggregateAttendance } from '../src/data/attendance.js';
+
 const keys = {
   students: 'vgtk_v2_students', lessons: 'vgtk_v2_lessons', grades: 'vgtk_v2_grades',
   overrides: 'vgtk_v2_form6_overrides', configs: 'vgtk_v2_works_config_by_journal',
@@ -126,7 +128,7 @@ test('grade identity, absent hour and clear; forged scope and out-of-range write
 test('scoped lessons preserve sheet authorship, trim hours and delete only related marks', () => {
   const { repo } = fixture();
   save(repo, { sheetId: 'sub2' }, { type: 'addLesson', lessonId: 'new',
-    fields: { hours: 2, journalId: 'a', createdByMain: true, type: 'ПР', isSubgroupOnly: true } });
+    fields: { rawDate: '2026-10-24', hours: 2, journalId: 'a', createdByMain: true, type: 'ПР', isSubgroupOnly: true } });
   save(repo, sheet, { ...grade, lessonId: 'new', hourIndex: 2 });
   save(repo, sheet, { type: 'updateLesson', lessonId: 'new', fields: { hours: 1, sheetId: 'other' } });
   const view = read(repo, sheet);
@@ -150,11 +152,11 @@ test('subgroup patches and Form 6 updates preserve other groups; multiple curato
   assert.equal(read(repo, sheet).students[0].subgroup, 2);
   assert.deepEqual(read(repo, { groupId: 'g2' }).students, other);
   assert.equal(repo.mutate(read(repo, sheet), { ...patch, updates: [{ id: 'b_c', subgroup: 1 }] }).ok, false);
-  const override = { type: 'setOverride', studentId: 'b_c', day: 6, value: { reason: 'Б' } };
+  const override = { type: 'setOverride', studentId: 'b_c', date: '2026-10-06', value: { reason: 'Б' } };
   save(repo, { groupId: 'g2' }, override);
   save(repo, { groupId: 'g1' }, { ...override, studentId: 'c' });
   assert.equal(repo.mutate(read(repo, { groupId: 'g1' }), override).ok, false);
-  assert.deepEqual(read(repo, { studentId: 'b_c' }).overrides, { b_c_6: { reason: 'Б' } });
+  assert.deepEqual(read(repo, { studentId: 'b_c' }).overrides, { 'b_c_2026-10-06': { reason: 'Б' } });
 });
 
 test('configs and work triples with delimiters remain independent; bool and metadata round-trip', () => {
@@ -181,7 +183,7 @@ test('teacher sheet edits a shared topic, trims and deletes its marks without to
   const otherSheet = { sheetId: 'other' };
   save(repo, otherSheet, { ...grade, studentId: 'b_c', lessonId: 'lesson-1' });
   const other = read(repo, otherSheet);
-  save(repo, secondSheet, { type: 'addLesson', lessonId: 'shared', fields: { hours: 2, topic: 'Тема' } });
+  save(repo, secondSheet, { type: 'addLesson', lessonId: 'shared', fields: { rawDate: '2026-10-24', hours: 2, topic: 'Тема' } });
   const created = read(repo, secondSheet).lessons.find(l => l.id === 'shared');
   save(repo, sheet, { ...grade, lessonId: 'shared', hourIndex: 2 });
   save(repo, sheet, { type: 'updateLesson', lessonId: 'shared', fields: { hours: 1, topic: 'Новая тема' } });
@@ -301,7 +303,7 @@ test('three cabinets share updates, with separate lessons, grades, work and reas
   save(teacher, secondSheet, { type: 'setConfig', value: { initialized: true, labsCount: 1, practicalsCount: 0 } });
   save(teacher, secondSheet, { type: 'setWork', studentId, workId: 'LAB_1', value: true });
   const group = { groupId: second.group.id };
-  save(curator, group, { type: 'setOverride', studentId, day: 23, value: { reason: 'З' } });
+  save(curator, group, { type: 'setOverride', studentId, date: '2026-10-23', value: { reason: 'З' } });
   for (const view of [read(curator, group), read(student, { studentId })]) {
     assert.deepEqual(view.journals.map(j => j.id), [second.journal.id]);
     assert.deepEqual(view.lessons, second.lessons);
@@ -309,10 +311,10 @@ test('three cabinets share updates, with separate lessons, grades, work and reas
       g.hourIndex === 2 && g.attendance === 'ABSENT'));
     assert.equal(view.configs[second.journal.id].labsCount, 1);
     assert.equal(view.completions[second.journal.id][studentId].LAB_1, true);
-    assert.equal(view.overrides[studentId + '_23'].reason, 'З');
+    assert.equal(view.overrides[studentId + '_2026-10-23'].reason, 'З');
   }
   assert.ok(read(student, { studentId }).grades.every(g => g.studentId === studentId));
-  save(curator, group, { type: 'setOverride', studentId, day: 23, value: null });
+  save(curator, group, { type: 'setOverride', studentId, date: '2026-10-23', value: null });
   assert.deepEqual(read(student, { studentId }).overrides, {});
   assert.deepEqual(read(curator, { groupId: first.group.id }), otherGroup);
   assert.deepEqual(read(student, { studentId: first.students[0].id }), otherStudent);
@@ -333,4 +335,115 @@ test('a 03B roster or lesson collection remains readable without appending ПО-
       assert.deepEqual(Object.fromEntries(env.values), { [keys[collection]]: raw });
     }
   }
+});
+
+test('only explicit legacy bindings enter scoped totals; reset and reopen preserve source bytes', () => {
+  const { repo, values, catalog, getStorage } = fixture();
+  const legacy = ' { "b_c_24": {"reason":"Б","customHours":3}, "c_24": {"cleared":true} } ';
+  values.set(keys.overrides, legacy);
+  const ctx = { groupId: 'g2' };
+  const datedKey = 'vgtk_v2_form6_overrides_by_date';
+  const before = read(repo, ctx);
+  const total = (view, month) => aggregateAttendance(view, { mode: 'month', month }).groupTotals.grandTotal;
+  assert.deepEqual(before.overrides, {});
+  assert.deepEqual(before.unassignedOverrides, { b_c_24: { reason: 'Б', customHours: 3 } });
+  assert.equal(total(before, '2026-10'), 0);
+  assert.equal(values.has(datedKey), false);
+  const binding = { type: 'bindOverride', studentId: 'b_c', day: 24, date: '2026-10-24' };
+  for (const context of [{ groupId: 'g1' }, { studentId: 'b_c' }, { sheetId: 'other' }]) {
+    assert.equal(repo.mutate(read(repo, context), binding).ok, false);
+  }
+  assert.equal(repo.mutate(before, { ...binding, date: '2026-10-25' }).ok, false);
+  save(repo, ctx, binding);
+  const bytes = values.get(datedKey);
+  save(repo, ctx, binding);
+  assert.equal(values.get(datedKey), bytes);
+  assert.equal(repo.mutate(before, binding).error.code, 'conflict');
+  const set = { type: 'setOverride', studentId: 'b_c', value: { reason: 'К', customHours: 5 } };
+  save(repo, ctx, { ...set, date: '2026-11-24' });
+  save(repo, ctx, { ...set, date: '2027-10-24', value: { reason: 'О', customHours: 2 } });
+  const reopened = createScopedJournalRepository({ catalog, getStorage });
+  for (const context of [ctx, { studentId: 'b_c' }]) {
+    const view = read(reopened, context);
+    assert.deepEqual(view.unassignedOverrides, {});
+    assert.deepEqual(['2026-10', '2026-11', '2027-10'].map(m => total(view, m)), [3, 5, 2]);
+  }
+  const foreign = read(repo, { studentId: 'c' });
+  assert.deepEqual(foreign.overrides, {});
+  assert.deepEqual(foreign.unassignedOverrides, { c_24: { cleared: true } });
+  save(repo, ctx, { ...set, date: binding.date, value: null });
+  save(repo, ctx, binding);
+  assert.equal(total(read(repo, ctx), '2026-10'), 0);
+  assert.deepEqual(read(repo, ctx).unassignedOverrides, {});
+  assert.equal(values.get(keys.overrides), legacy);
+});
+
+test('a stored demo-like date requires manual confirmation and retains the original fields', () => {
+  const env = memory();
+  const repo = createScopedJournalRepository(env);
+  const context = { sheetId: 'subj-kp-main' };
+  const demo = read(repo, context);
+  assert.equal(demo.lessons[0].isoDate, '2026-10-24');
+  const lessons = ['group-1', 'group-2'].flatMap(groupId => read(repo, { groupId }).lessons);
+  const original = lessons.find(l => l.id === 'l1');
+  delete original.isoDate;
+  delete original.rawDate;
+  const raw = JSON.stringify(lessons);
+  env.values.set(keys.lessons, raw);
+  const view = read(repo, context);
+  assert.equal(view.lessons.find(l => l.id === 'l1').isoDate, undefined);
+  const sum = () => aggregateAttendance(read(repo, context), { mode: 'all' }).groupTotals.grandTotal;
+  assert.equal(sum(), 0);
+  const command = { type: 'updateLesson', lessonId: 'l1', fields: { rawDate: '2026-02-29' } };
+  assert.equal(repo.mutate(view, command).ok, false);
+  assert.equal(env.values.get(keys.lessons), raw);
+  save(repo, context, { ...command, fields: { isoDate: '2024-02-29' } });
+  const confirmed = read(repo, context).lessons.find(l => l.id === 'l1');
+  assert.deepEqual(confirmed.originalDateFields, { day: 24, date: '24.10' });
+  assert.deepEqual([confirmed.isoDate, confirmed.rawDate, confirmed.date, confirmed.day],
+    ['2024-02-29', '2024-02-29', '29.02', 29]);
+  assert.equal(sum(), 2);
+  assert.deepEqual(read(repo, context).grades, view.grades);
+});
+
+test('invalid dated data and occupied binding destinations are never overwritten', () => {
+  const { repo, values } = fixture();
+  const ctx = { groupId: 'g1' };
+  const key = 'vgtk_v2_form6_overrides_by_date';
+  values.set(keys.overrides, '{"c_24":{"cleared":true}}');
+  save(repo, ctx, { type: 'setOverride', studentId: 'c', date: '2026-10-24', value: { reason: 'Сп' } });
+  const bytes = values.get(key);
+  const view = read(repo, ctx);
+  assert.equal(repo.mutate(view, { type: 'bindOverride', studentId: 'c', day: 24, date: '2026-10-24' }).ok, false);
+  assert.equal(values.get(key), bytes);
+  for (const entry of ['missing_2026-10-24', 'c_2026-02-29', 'c_24']) {
+    const raw = JSON.stringify({ entries: { [entry]: { reason: 'Б' } }, bindings: {} });
+    values.set(key, raw);
+    assert.equal(repo.read(ctx).ok, false);
+    assert.equal(repo.mutate(view, grade).ok, false);
+    assert.equal(values.get(key), raw);
+  }
+});
+
+test('student snapshots exclude classmates’ dated and pending overrides; failed binding is retryable', () => {
+  const { repo, data, values, storage } = fixture();
+  const classmate = { id: 'class_mate', groupId: 'g1', subgroup: 2 };
+  values.set(keys.students, JSON.stringify([...data.students, classmate]));
+  const original = ' { "class_mate_1": {"reason":"О"}, "c_1": {"reason":"Б"} } ';
+  values.set(keys.overrides, original);
+  const ctx = { groupId: 'g1' };
+  const cmd = { type: 'bindOverride', studentId: 'class_mate', day: 1, date: '2027-01-01' };
+  const base = read(repo, ctx);
+  const write = storage.setItem;
+  storage.setItem = () => { throw new Error('quota'); };
+  assert.equal(repo.mutate(base, cmd).error.code, 'write');
+  assert.deepEqual(read(repo, ctx), base);
+  storage.setItem = write;
+  assert.equal(repo.mutate(base, cmd).ok, true);
+  assert.deepEqual(read(repo, { studentId: 'c' }).overrides, {});
+  assert.deepEqual(read(repo, { studentId: 'c' }).unassignedOverrides, { c_1: { reason: 'Б' } });
+  const own = read(repo, { studentId: 'class_mate' });
+  assert.deepEqual(own.overrides, { 'class_mate_2027-01-01': { reason: 'О' } });
+  assert.deepEqual(own.unassignedOverrides, {});
+  assert.equal(values.get(keys.overrides), original);
 });
