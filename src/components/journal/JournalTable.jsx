@@ -1,4 +1,5 @@
 import { getGradeHourIndex } from '../../data/journalRepository';
+import { completionLabel, isSubgroupLesson, lessonCompletion } from '../../data/lessonCompletion';
 import JournalDialog from '../ui/JournalDialog';
 import { useState } from 'react';
 import { AlertTriangle, X, Check } from 'lucide-react';
@@ -7,11 +8,14 @@ import { getLessonTimestamp } from './lessonDate';
 import SubgroupManagerModal from './SubgroupManagerModal';
 import WorkCompletionModule from './WorkCompletionModule';
 
-export default function JournalTable({ snapshot, save }) {
+export default function JournalTable({ snapshot, save, opening, readError }) {
   const { subjectName, isMain: isMainSheet } = snapshot.sheet;
   const [gradeFailure, setGradeFailure] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedLesson, setSelectedLesson] = useState(null);
+  const [isModalOpen, setIsModalOpen] = useState(Boolean(opening && opening.kind !== 'invalid'));
+  const [selectedLesson, setSelectedLesson] = useState(() => opening?.kind === 'linked'
+    ? snapshot.lessons.find(lesson => lesson.id === opening.lessonId) : null);
+  const [scheduledOpening, setScheduledOpening] = useState(() =>
+    ['missing', 'ambiguous'].includes(opening?.kind) ? opening : null);
   const [isSubgroupModalOpen, setIsSubgroupModalOpen] = useState(false);
   const [showTopicsPanel, setShowTopicsPanel] = useState(true);
   const [showWorksModule, setShowWorksModule] = useState(true);
@@ -28,16 +32,12 @@ export default function JournalTable({ snapshot, save }) {
   const [editingCell, setEditingCell] = useState(null);
   const displayed = editingCell?.base ?? snapshot;
   const { students, grades } = displayed;
-  const isSubgroupLesson = (lesson) => {
-    return lesson.type === 'ПР' || lesson.type === 'ЛАБ' || lesson.isSubgroupOnly;
-  };
-
   // Оба преподавателя видят все занятия предмета и весь список группы
   const lessons = [...displayed.lessons].sort((a, b) => getLessonTimestamp(a) - getLessonTimestamp(b));
   const visibleStudents = students;
 
-  const handleAddLesson = (fields, base) =>
-    save(base, { type: 'addLesson', lessonId: `l${Date.now()}`, fields });
+  const handleAddLesson = (fields, base, lessonId) =>
+    save(base, { type: 'addLesson', lessonId, fields, scheduleIntent: scheduledOpening?.intent });
   const handleUpdateLesson = (fields, base) =>
     save(base, { type: 'updateLesson', lessonId: selectedLesson.id, fields });
   const handleDeleteLesson = (lessonId, base) => save(base, { type: 'deleteLesson', lessonId });
@@ -213,6 +213,9 @@ export default function JournalTable({ snapshot, save }) {
                             {lesson.date || 'Без даты'}{!lesson.isoDate && ' (?)'}
                           </span>
                           {hasDetails && <span title="Заполнены тема или задание" aria-label="Заполнены тема или задание">·</span>}
+                        </span>
+                        <span className="lesson-status-label">
+                          {completionLabel[lessonCompletion(lesson, snapshot.sheet.sheetId).status]}
                         </span>
 
                         <span className="flex items-center gap-1">
@@ -529,11 +532,15 @@ export default function JournalTable({ snapshot, save }) {
         onClose={() => {
           setIsModalOpen(false);
           setSelectedLesson(null);
+          setScheduledOpening(null);
         }}
         snapshot={snapshot}
         onAdd={handleAddLesson}
         onUpdate={handleUpdateLesson}
         onDelete={handleDeleteLesson}
+        onAction={save}
+        scheduleOpening={scheduledOpening}
+        readError={readError}
         initialLesson={selectedLesson}
         existingLessons={lessons}
         canModify={true}

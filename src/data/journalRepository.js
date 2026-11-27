@@ -6,6 +6,9 @@ import { buildScopeIndex, gradeHour, JournalScopeError, requireScope, selectScop
 
 import { dateFields, isCalendarDate, lessonDate } from './period.js';
 import { validOverride } from './attendance.js';
+import { readSchedule } from './scheduleRepository.js';
+import { attendanceSignatures, collegeTime, currentCompletion, fitsScheduleRef, hasTopic,
+  lessonScopeSignature, lessonTiming, ownEntry, resolveScheduleIntent } from './lessonCompletion.js';
 
 const isObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const isRecordList = (value) => Array.isArray(value) && value.every(isObject);
@@ -128,10 +131,10 @@ function workEntry(rows, journalId, studentId, workId, value) {
   return { ...rows, [journalId]: { ...perJournal, [studentId]: works } };
 }
 
-function lessonChanges(data, view, command) {
+function lessonChanges(data, view, command, resolveSchedule) {
   const { journal, sheet } = view;
-  const { type, lessonId, fields } = command;
-  const previous = view.lessons.find(l => l.id === lessonId);
+  const { type, lessonId, fields, scheduleIntent } = command;
+  const previous = data.lessons.find(l => l.id === lessonId && l.journalId === journal.id);
   if (type !== 'addLesson') requireScope(previous, 'lessons', 'Занятие отсутствует в этом журнале.');
   if (type === 'deleteLesson') {
     return {
@@ -155,17 +158,100 @@ function lessonChanges(data, view, command) {
   if (type === 'addLesson') {
     requireScope(sheet, 'context', 'Для создания занятия выберите лист преподавателя.');
     const lesson = { ...patch, id: lessonId, journalId: journal.id, groupId: journal.groupId,
-      subjectId: journal.subjectId, sheetId: sheet.sheetId, createdByMain: sheet.isMain };
+      subjectId: journal.subjectId, sheetId: sheet.sheetId, createdByMain: sheet.isMain,
+      completionBySheet: { [sheet.sheetId]: { status: 'draft', confirmations: {} } } };
+    if (scheduleIntent !== undefined) {
+      const match = resolveSchedule(scheduleIntent);
+      requireScope(match?.kind === 'missing' && fitsScheduleRef(lesson, match.ref),
+        'lessons', 'Расписание или журнал изменились. Проверьте событие перед созданием занятия.');
+      lesson.scheduleRefsBySheet = { [sheet.sheetId]: match.ref };
+    }
     return { lessons: [...data.lessons, lesson] };
   }
-  const changes = { lessons: data.lessons.map(l => l.id === lessonId ? { ...l, ...patch } : l) };
+  const updated = { ...previous, ...patch };
+  if (previous.scheduleRefsBySheet && lessonScopeSignature(previous) !== lessonScopeSignature(updated)) {
+    delete updated.scheduleRefsBySheet;
+  }
+  const changes = { lessons: data.lessons.map(l => l.id === lessonId ? updated : l) };
   if (previous.hours === 2 && patch.hours === 1) {
     changes.grades = data.grades.filter(g => g.lessonId !== lessonId || gradeHour(g) === 1);
   }
   return changes;
 }
 
-function scopedChanges(data, view, context, command, catalog) {
+function completionChanges(data, view, command, time, resolveSchedule) {
+  const { sheet, journal } = view;
+  requireScope(sheet, 'context', 'Для этого действия выберите лист преподавателя.');
+  const { type, lessonId, hourIndex, value, scheduleIntent } = command;
+  const lesson = data.lessons.find(l => l.id === lessonId && l.journalId === journal.id);
+  requireScope(lesson, 'lessons', 'Занятие отсутствует в этом журнале.');
+  const id = sheet.sheetId;
+  const previous = ownEntry(lesson.completionBySheet, id);
+  const replace = updated => ({ lessons: data.lessons.map(l => l === lesson ? updated : l) });
+  if (type === 'bindSchedule') {
+    const match = resolveSchedule(scheduleIntent);
+    if (match?.kind === 'linked' && match.lessonId === lessonId) return {};
+    requireScope(match?.kind === 'ambiguous' && match.bindable.some(row => row.id === lessonId),
+      'lessons', 'Привязка не подтверждена. Проверьте назначение, дату, часы и другие привязки.');
+    const updated = { ...lesson, scheduleRefsBySheet: { ...lesson.scheduleRefsBySheet, [id]: match.ref } };
+    if (lessonTiming(updated, time) === 'future' && updated.completionBySheet) {
+      updated.completionBySheet = Object.fromEntries(Object.entries(updated.completionBySheet)
+        .map(([sheetId, entry]) => [sheetId, { ...entry, status: 'draft' }]));
+    }
+    return replace(updated);
+  }
+  const signatures = attendanceSignatures(lesson, sheet, view.students, view.grades);
+  const entry = currentCompletion(lesson, previous, signatures) ?? { status: 'draft', confirmations: {} };
+  if (type === 'confirmAttendance') {
+    requireScope(Number.isInteger(hourIndex) && hourIndex >= 1 && hourIndex <= lesson.hours && typeof value === 'boolean',
+      'lessons', 'Укажите академический час и состояние подтверждения.');
+    if (value) {
+      requireScope(signatures[hourIndex], 'students', 'Уточните состав подгрупп перед подтверждением посещаемости.');
+      entry.confirmations[hourIndex] = signatures[hourIndex];
+    } else {
+      if (!previous) return {};
+      delete entry.confirmations[hourIndex];
+      entry.status = 'draft';
+    }
+  } else if (type === 'completeLesson') {
+    requireScope(time && isCalendarDate(lessonDate(lesson)) && lessonTiming(lesson, time) !== 'future',
+      'lessons', 'Подтвердите дату и дождитесь окончания занятия.');
+    requireScope(hasTopic(lesson), 'lessons', 'Укажите и сохраните тему занятия.');
+    requireScope([1, 2].includes(lesson.hours) && Object.keys(entry.confirmations).length === lesson.hours,
+      'lessons', 'Подтвердите посещаемость отдельно за каждый академический час.');
+    entry.status = 'completed';
+  } else {
+    if (!previous) return {};
+    entry.status = 'draft';
+  }
+  if (JSON.stringify(previous) === JSON.stringify(entry)) return {};
+  return replace({ ...lesson, completionBySheet: { ...lesson.completionBySheet, [id]: entry } });
+}
+
+// Затронутые ключи пишутся одной операцией хранилища с проверкой снимка и откатом.
+function invalidateCompletion(data, changes, sheets, affects) {
+  const { lessons = data.lessons, students = data.students, grades = data.grades } = changes;
+  const originals = new Map(data.lessons.map(lesson => [lesson.id, lesson]));
+  let invalidated = false;
+  const updatedLessons = lessons.map(lesson => {
+    if (!lesson.completionBySheet || !affects(lesson)) return lesson;
+    let updated = lesson;
+    for (const [id, entry] of Object.entries(lesson.completionBySheet)) {
+      const sheet = sheets.get(id);
+      const original = originals.get(lesson.id);
+      const before = currentCompletion(original, entry, attendanceSignatures(original, sheet, data.students, data.grades));
+      const valid = currentCompletion(lesson, before, attendanceSignatures(lesson, sheet, students, grades));
+      if (JSON.stringify(valid) !== JSON.stringify(entry)) {
+        updated = { ...updated, completionBySheet: { ...updated.completionBySheet, [id]: valid } };
+        invalidated = true;
+      }
+    }
+    return updated;
+  });
+  return invalidated ? { ...changes, lessons: updatedLessons } : changes;
+}
+
+function scopedChanges(data, view, context, command, catalog, time, resolveSchedule) {
   requireScope(isObject(command) && !Object.hasOwn(context, 'studentId'), 'context',
     'Для изменения требуется контекст преподавателя или куратора.');
   const { type, studentId, lessonId, workId, value } = command;
@@ -203,7 +289,12 @@ function scopedChanges(data, view, context, command, catalog) {
     case 'addLesson':
     case 'updateLesson':
     case 'deleteLesson':
-      return lessonChanges(data, view, command);
+      return lessonChanges(data, view, command, resolveSchedule);
+    case 'confirmAttendance':
+    case 'completeLesson':
+    case 'reopenLesson':
+    case 'bindSchedule':
+      return completionChanges(data, view, command, time, resolveSchedule);
     case 'setGrade': {
       const hour = gradeHour(command);
       validateCell(student, view.lessons.find(l => l.id === lessonId), hour);
@@ -243,7 +334,8 @@ const scopedChange = 'vgtk-v2-journal-change';
 const scopedKeys = new Set(Object.values(v2).map(def => def.key));
 
 export function createScopedJournalRepository({
-  getStorage, catalog = demoCatalog, eventTarget = globalThis.window ?? new EventTarget()
+  getStorage, catalog = demoCatalog, eventTarget = globalThis.window ?? new EventTarget(),
+  getSchedule = readSchedule, now = Date.now
 } = {}) {
   const storage = createStorage(v2, getStorage);
   // Версии всех зависимостей и исходный контекст остаются внутри экземпляра.
@@ -276,7 +368,7 @@ export function createScopedJournalRepository({
       issued.set(snapshot, {
         context: { ...context }, versions: state.versions,
         groupId: snapshot.group.id, journalId: snapshot.journal?.id,
-        subjectId: snapshot.journal?.subjectId, isMain: snapshot.sheet?.isMain
+        subjectId: snapshot.journal?.subjectId, isMain: snapshot.sheet?.isMain, assignmentId: snapshot.sheet?.id
       });
       return { ok: true, snapshot };
     });
@@ -293,12 +385,23 @@ export function createScopedJournalRepository({
         message: 'Снимок устарел. Перечитайте журнал.' } };
       const view = selectScope(state.index, state.data, token.context);
       if (view.group.id !== token.groupId || view.journal?.id !== token.journalId ||
-        view.journal?.subjectId !== token.subjectId || view.sheet?.isMain !== token.isMain) {
+        view.journal?.subjectId !== token.subjectId || view.sheet?.isMain !== token.isMain ||
+        view.sheet?.id !== token.assignmentId) {
         return { ok: false, error: { code: 'conflict', key: 'context',
           message: 'Учебное назначение изменилось. Перечитайте журнал.' } };
       }
-      const changes = scopedChanges(state.data, view, token.context, command, catalog);
+      const timestamp = now();
+      const resolveSchedule = intent => {
+        if (!view.sheet || !['today', 'tomorrow'].includes(intent?.day)) return null;
+        return resolveScheduleIntent(intent, { [intent.day]: getSchedule(intent.day), now: timestamp,
+          sheets: catalog.sheets, snapshot: view });
+      };
+      let changes = scopedChanges(state.data, view, token.context, command, catalog, collegeTime(timestamp), resolveSchedule);
       buildScopeIndex(catalog, { ...state.data, ...changes });
+      if (['setGrade', 'setSubgroups', 'updateLesson'].includes(command.type)) {
+        changes = invalidateCompletion(state.data, changes, state.index.sheets, command.type === 'setSubgroups'
+          ? lesson => lesson.groupId === view.group.id : lesson => lesson.id === command.lessonId);
+      }
       const result = storage.write(changes, state.versions);
       if (result.ok || result.error.code === 'partial') eventTarget.dispatchEvent(new Event(scopedChange));
       return result;

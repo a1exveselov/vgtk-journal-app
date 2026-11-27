@@ -1,5 +1,6 @@
 import { dateFields, isCalendarDate, lessonDate } from './period.js';
 import { validOverride } from './attendance.js';
+import { attendanceSignatures, currentCompletion, ownEntry, validScheduleRef } from './lessonCompletion.js';
 
 // Доменные ошибки перехватываются на границе публичного API репозитория.
 export class JournalScopeError extends Error {
@@ -34,6 +35,38 @@ function sameAssignment(row, journal) {
 
 export function gradeHour(grade) {
   return grade.hourIndex === undefined ? 1 : grade.hourIndex;
+}
+
+function validConfirmation(signature) {
+  if (typeof signature !== 'string') return false;
+  try {
+    const parts = JSON.parse(signature);
+    return Array.isArray(parts) && parts.length === 5 && isId(parts[0]) &&
+      [null, 1, 2].includes(parts[1]) && isId(parts[2]) &&
+      parts.slice(3).every(ids => Array.isArray(ids) && ids.every(isId));
+  } catch {
+    return false;
+  }
+}
+
+function validateLessonMetadata(lesson, index) {
+  const { completionBySheet, scheduleRefsBySheet } = lesson;
+  if (completionBySheet !== undefined) {
+    requireScope(isRecord(completionBySheet), 'lessons', 'Повреждены статусы занятия.');
+    for (const [id, entry] of Object.entries(completionBySheet)) {
+      requireScope(index.sheets.get(id)?.journalId === lesson.journalId && isRecord(entry) &&
+        ['draft', 'completed'].includes(entry.status) && isRecord(entry.confirmations) &&
+        Object.entries(entry.confirmations).every(([hour, signature]) =>
+          ['1', '2'].includes(hour) && validConfirmation(signature)), 'lessons', 'Повреждено подтверждение посещаемости.');
+    }
+  }
+  if (scheduleRefsBySheet !== undefined) {
+    requireScope(isRecord(scheduleRefsBySheet), 'lessons', 'Повреждены привязки к расписанию.');
+    for (const [id, ref] of Object.entries(scheduleRefsBySheet)) {
+      const sheet = index.sheets.get(id);
+      requireScope(sheet?.journalId === lesson.journalId && validScheduleRef(ref, sheet), 'lessons', 'Повреждена привязка к расписанию.');
+    }
+  }
 }
 
 export function validateCell(student, lesson, hour) {
@@ -90,6 +123,7 @@ export function buildScopeIndex(catalog, data) {
       (lesson.rawDate === undefined || lesson.rawDate === lesson.isoDate)),
     'lessons', 'Проверьте полную дату занятия и rawDate.');
     requireScope([1, 2].includes(lesson.hours), 'lessons', 'Занятие должно содержать один или два часа.');
+    validateLessonMetadata(lesson, index);
   }
   const cells = new Set();
   for (const g of data.grades) {
@@ -143,8 +177,19 @@ export function selectScope(index, data, context) {
   const journalIds = new Set(journals.map(j => j.id));
   const students = student ? [student] : data.students.filter(s => s.groupId === group.id);
   const studentIds = new Set(students.map(s => s.id));
-  const lessons = data.lessons.filter(l => journalIds.has(l.journalId)).map(l =>
-    lessonDate(l) ? { ...l, ...dateFields(lessonDate(l)) } : l);
+  const lessons = data.lessons.filter(l => journalIds.has(l.journalId)).map(lesson => {
+    const { completionBySheet, scheduleRefsBySheet, ...fields } = lesson;
+    const date = lessonDate(lesson);
+    const row = date ? { ...fields, ...dateFields(date) } : fields;
+    if (!sheet) return row;
+    if (scheduleRefsBySheet) row.scheduleRefsBySheet = scheduleRefsBySheet;
+    const entry = ownEntry(completionBySheet, sheet.sheetId);
+    if (entry) {
+      row.completionBySheet = { [sheet.sheetId]: currentCompletion(row, entry,
+        attendanceSignatures(row, sheet, students, data.grades)) };
+    }
+    return row;
+  });
   const lessonIds = new Set(lessons.map(l => l.id));
   const entriesForJournals = (rows) => Object.entries(rows).filter(([key]) => journalIds.has(key));
   const works = (rows) => Object.fromEntries(entriesForJournals(rows).map(([key, perStudent]) =>

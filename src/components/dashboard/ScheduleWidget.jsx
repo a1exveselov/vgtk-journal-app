@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { readSchedule } from '../../data/scheduleRepository';
+import { collegeTime, confirmedDay, scheduleIntent, scheduleRef } from '../../data/lessonCompletion';
 
 const lessonTypes = { ЛЕК: 'Лекция', ПР: 'Практическое занятие', ЛАБ: 'Лабораторная работа', УРОК: 'Урок' };
 
@@ -10,7 +11,7 @@ function TimeRange({ start, end }) {
   </div>;
 }
 
-function LessonCard({ lesson, linkToJournals }) {
+function LessonCard({ lesson, linkToJournals, intent }) {
   const { slots, hours, subject, teacher, room, type, group, groupId, sheetId } = lesson;
   const pair = slots.length === 2;
   return <div className="schedule-card">
@@ -19,7 +20,9 @@ function LessonCard({ lesson, linkToJournals }) {
       {room && <span>Ауд. {room}</span>}
     </div>
     <h3>{linkToJournals && sheetId
-      ? <Link to={`/journal/${encodeURIComponent(sheetId)}`}>{subject} <span aria-hidden="true">↗</span></Link>
+      ? <Link to={`/journal/${encodeURIComponent(sheetId)}`} state={intent && { lessonIntent: intent }}>
+        {subject} <span aria-hidden="true">↗</span>
+      </Link>
       : subject}</h3>
     <p>{[group || groupId, lessonTypes[type] || type].filter(Boolean).join(' · ')}</p>
     {teacher && <p>{teacher}</p>}
@@ -46,10 +49,23 @@ function Interval({ item, demo }) {
   return <span className="schedule-pause">{item.kind === 'break' ? 'Перемена · 10 мин' : 'Промежуток между занятиями'}</span>;
 }
 
-export default function ScheduleWidget({ linkToJournals = false, groupFilter = null }) {
+export default function ScheduleWidget({ linkToJournals = false, groupFilter = null, teacherSheets = null }) {
   const [day, setDay] = useState('today');
-  const { timeline, summary, status, source, dateLabel, isoDate, warnings } = readSchedule(day, groupFilter);
+  const [now, setNow] = useState(Date.now);
+  const schedule = readSchedule(day, groupFilter);
+  const { timeline, summary, status, source, dateLabel, isoDate, warnings } = schedule;
   const demo = source === 'demo';
+  const confirmed = teacherSheets && source === 'live' && confirmedDay(schedule, day, collegeTime(now));
+  useEffect(() => {
+    if (!teacherSheets || source !== 'live') return;
+    const update = () => setNow(Date.now());
+    document.addEventListener('visibilitychange', update);
+    window.addEventListener('focus', update);
+    return () => {
+      document.removeEventListener('visibilitychange', update);
+      window.removeEventListener('focus', update);
+    };
+  }, [teacherSheets, source]);
   return (
     <section className="schedule" aria-label={groupFilter ? `Расписание группы ${groupFilter}` : 'Расписание преподавателя'}>
       <header className="schedule-header">
@@ -59,7 +75,10 @@ export default function ScheduleWidget({ linkToJournals = false, groupFilter = n
         </div>
         <div className="schedule-switch" role="group" aria-label="День расписания">
           {[['today', 'Сегодня'], ['tomorrow', 'Завтра']].map(([key, label]) =>
-            <button type="button" key={key} aria-pressed={day === key} onClick={() => setDay(key)}>{label}</button>)}
+            <button type="button" key={key} aria-pressed={day === key} onClick={() => {
+              setDay(key);
+              if (teacherSheets && source === 'live') setNow(Date.now());
+            }}>{label}</button>)}
         </div>
       </header>
       <div aria-live="polite">
@@ -74,10 +93,15 @@ export default function ScheduleWidget({ linkToJournals = false, groupFilter = n
         {warnings.map((warning, i) => <p key={i} className="schedule-warning">{warning}</p>)}
       </div>
       {timeline.length > 0 && <ol className="schedule-timeline" key={JSON.stringify([day, groupFilter])}>
-        {timeline.map(item => <li key={item.kind + '-' + (item.id ?? item.start)} className={'schedule-row schedule-row-' + item.kind}>
-          <TimeRange start={item.start} end={item.end} />
-          {item.kind === 'lesson' ? <LessonCard lesson={item} linkToJournals={linkToJournals} /> : <Interval item={item} demo={demo} />}
-        </li>)}
+        {timeline.map(item => {
+          const ref = confirmed && scheduleRef(schedule, item, teacherSheets);
+          const intent = ref ? { kind: 'schedule', schedule: scheduleIntent(day, ref) } : undefined;
+          return <li key={item.kind + '-' + (item.id ?? item.start)} className={'schedule-row schedule-row-' + item.kind}>
+            <TimeRange start={item.start} end={item.end} />
+            {item.kind === 'lesson' ? <LessonCard lesson={item} linkToJournals={linkToJournals} intent={intent} />
+              : <Interval item={item} demo={demo} />}
+          </li>;
+        })}
       </ol>}
     </section>
   );

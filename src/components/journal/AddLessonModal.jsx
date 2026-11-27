@@ -3,7 +3,69 @@ import { useRef, useState } from 'react';
 import { X, AlertTriangle, Check } from 'lucide-react';
 
 import { dateFields, isCalendarDate, lessonDate } from '../../data/period';
+import { attendanceSignatures, completionLabel, hasTopic, isSubgroupLesson, lessonCompletion,
+  lessonScopeSignature } from '../../data/lessonCompletion';
 import { getLessonTimestamp } from './lessonDate';
+
+function LessonCompletion({ lesson, sheet, onAction }) {
+  const { status, confirmations } = lessonCompletion(lesson, sheet.sheetId);
+  const hours = Array.from({ length: lesson.hours }, (_, i) => i + 1);
+  const completed = status === 'completed';
+  return <section className="lesson-completion" aria-labelledby="lesson-completion-title">
+    <h3 id="lesson-completion-title">Завершение занятия</h3>
+    <p role="status">{completionLabel[status]}</p>
+    <fieldset>
+      <legend>Посещаемость · {isSubgroupLesson(lesson) ? `${sheet.isMain ? 1 : 2}-я подгруппа` : 'вся группа'}</legend>
+      <p>Проверьте посещаемость и отметьте отсутствующих в журнале.</p>
+      {hours.map(hourIndex => {
+        const checked = Boolean(confirmations[hourIndex]);
+        return <label key={hourIndex} className="lesson-completion-hour">
+          <input type="checkbox" checked={checked} onChange={event =>
+            onAction({ type: 'confirmAttendance', hourIndex, value: event.target.checked },
+              `${event.target.checked ? 'Подтвердить' : 'Снять подтверждение'} посещаемости за ${hourIndex}-й час`)} />
+          <span>{hourIndex}-й академический час <strong>{checked ? 'Проверена' : 'Не проверена'}</strong></span>
+        </label>;
+      })}
+    </fieldset>
+    {!completed && !hasTopic(lesson) && <p>Чтобы завершить занятие, укажите и сохраните тему.</p>}
+    <button className="lesson-action" type="button" onClick={() =>
+      onAction({ type: completed ? 'reopenLesson' : 'completeLesson' },
+        completed ? 'Вернуть в черновик' : 'Завершить занятие')}>
+      {completed ? 'Вернуть в черновик' : 'Завершить занятие'}
+    </button>
+  </section>;
+}
+
+function ScheduleSelection({ opening, lessons, selection, onSelect, onBind }) {
+  const candidates = new Set(opening.candidates.map(lesson => lesson.id));
+  const bindable = new Set(opening.bindable.map(lesson => lesson.id));
+  return <section className="lesson-completion lesson-match">
+    <p>Выберите существующее занятие и подтвердите привязку к расписанию.</p>
+    <ul>
+      {lessons.map((lesson, index) => candidates.has(lesson.id) && <li key={lesson.id}>
+        <label className="lesson-completion-hour">
+          <input type="radio" name="schedule-lesson" value={lesson.id} disabled={!bindable.has(lesson.id)}
+            checked={selection === lesson.id} onChange={() => onSelect(lesson.id)} />
+          <span>№ {index + 1} · {lesson.isoDate || 'Дата требует уточнения'} · {lesson.type} · {lesson.hours} ч.
+            {lesson.topic && ` · ${lesson.topic}`}{!bindable.has(lesson.id) && ' · Привязка недоступна'}</span>
+        </label>
+      </li>)}
+    </ul>
+    {!bindable.size && <p>Уточните дату, тип, часы или существующие привязки в журнале.</p>}
+    <button type="button" className="lesson-action" disabled={!bindable.has(selection)} onClick={onBind}>
+      Подтвердить привязку
+    </button>
+  </section>;
+}
+
+function attendanceChanged(base, snapshot, current) {
+  if (!base.sheet || !snapshot.sheet || !current) return false;
+  const before = base.lessons.find(lesson => lesson.id === current.id);
+  if (!before || lessonScopeSignature(before) !== lessonScopeSignature(current)) return false;
+  const previous = attendanceSignatures(before, base.sheet, base.students, base.grades);
+  const latest = attendanceSignatures(current, snapshot.sheet, snapshot.students, snapshot.grades);
+  return JSON.stringify(latest) !== JSON.stringify(previous);
+}
 
 export default function AddLessonModal({
   snapshot,
@@ -11,6 +73,9 @@ export default function AddLessonModal({
   onAdd,
   onUpdate,
   onDelete,
+  onAction,
+  scheduleOpening,
+  readError,
   initialLesson = null,
   existingLessons = [],
   canModify = true
@@ -20,14 +85,18 @@ export default function AddLessonModal({
   const [saving, setSaving] = useState(false);
   const pending = useRef(false);
   const dismiss = () => { if (!pending.current) onClose(); };
-  async function submit(operation) {
+  async function submit(operation, { stayOpen = false, label } = {}) {
     if (pending.current || error?.code === 'conflict') return;
+    if (readError) return setError(readError);
     pending.current = true;
     setSaving(true);
     try {
       const result = await operation();
-      if (result?.ok === true) onClose();
-      else setError(result?.error ?? { message: 'Сохранение не подтверждено.' });
+      if (result?.ok === true && !stayOpen) onClose();
+      else if (result?.ok === true && result.snapshot) {
+        setBase(result.snapshot);
+        setError(null);
+      } else setError({ ...(result?.error ?? { message: 'Сохранение не подтверждено.' }), label });
     } catch {
       setError({ message: 'Не удалось сохранить изменения. Черновик сохранён в форме.' });
     } finally {
@@ -36,15 +105,18 @@ export default function AddLessonModal({
     }
   }
 
-  const [mode, setMode] = useState(initialLesson ? 'view' : 'create');
+  const [mode, setMode] = useState(initialLesson ? 'view' : scheduleOpening?.kind === 'ambiguous' ? 'match' : 'create');
+  const [newId] = useState(() => `l${globalThis.crypto?.randomUUID?.() ?? Date.now()}`);
+  const [selection, setSelection] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [backdateWarning, setBackdateWarning] = useState(null);
 
+  const schedule = scheduleOpening?.ref;
   const [formData, setFormData] = useState(() => {
     return {
-      date: lessonDate(initialLesson) ?? '',
-      type: initialLesson?.type || 'ЛЕК',
-      hours: initialLesson?.hours || 2,
+      date: lessonDate(initialLesson) ?? schedule?.isoDate ?? '',
+      type: initialLesson?.type || (schedule ? schedule.type ?? '' : 'ЛЕК'),
+      hours: initialLesson?.hours || schedule?.slots.length || 2,
       topic: initialLesson?.topic || '',
       homework: initialLesson?.homework || '',
     };
@@ -69,12 +141,13 @@ export default function AddLessonModal({
       isSubgroupOnly: formData.type === 'ПР' || formData.type === 'ЛАБ'
     };
 
-    return submit(() => mode === 'edit' && initialLesson ? onUpdate(payload, base) : onAdd(payload, base));
+    return submit(() => mode === 'edit' && initialLesson ? onUpdate(payload, base) : onAdd(payload, base, newId));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!isCalendarDate(formData.date)) return setError({ message: 'Укажите существующую полную дату.' });
+    if (!formData.type) return setError({ message: 'Укажите тип занятия.' });
 
     const latestLesson = getLatestExistingLesson();
     if (latestLesson) {
@@ -98,7 +171,9 @@ export default function AddLessonModal({
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const current = existingLessons.find(l => l.id === initialLesson?.id);
+  const current = snapshot.lessons.find(l => l.id === initialLesson?.id);
+  const viewed = current ?? initialLesson;
+  const savedCompletion = current && snapshot.sheet && lessonCompletion(current, snapshot.sheet.sheetId);
 
   return (
     <JournalDialog titleId="lesson" onDismiss={dismiss}>
@@ -110,11 +185,16 @@ export default function AddLessonModal({
         {saving && <p role="status">Сохранение…</p>}
         {error && <div role="alert" className="p-4">
           <p>{error.message}</p>
+          {error.label && <p>Действие: {error.label}.</p>}
           {error.code === 'conflict' && <>
             {current ? <p>Сейчас в журнале: {current.date}, {current.type}, {current.hours} ч. Тема: {current.topic || '—'}. ДЗ: {current.homework || '—'}.</p>
                 : <p>{initialLesson ? 'Занятие больше не входит в этот журнал.' :
                   'Занятия журнала: ' + (existingLessons.map(l => l.date + ' ' + l.type).join(', ') || 'нет')}</p>}
-            <button type="button" onClick={() => { setBase(snapshot); setError(null); }}>
+            {savedCompletion && <p>{completionLabel[savedCompletion.status]}. Посещаемость подтверждена за часы:
+              {' '}{Object.keys(savedCompletion.confirmations).join(', ') || 'ни за один'}.</p>}
+            {attendanceChanged(base, snapshot, current) && <p>В журнале изменились состав учащихся или отметки «Н».</p>}
+            <button type="button" className="lesson-action" disabled={Boolean(readError)}
+              onClick={() => { setBase(snapshot); setError(null); }}>
               Продолжить с текущей версией журнала
             </button>
           </>}
@@ -124,6 +204,7 @@ export default function AddLessonModal({
             <div>
               <h2 id="lesson" className="text-base font-bold text-white tracking-wide">
                 {mode === 'create' && 'Новое занятие'}
+                {mode === 'match' && 'Сопоставление с расписанием'}
                 {mode === 'view' && `Занятие от ${initialLesson?.date}`}
                 {mode === 'edit' && `Редактирование занятия (${initialLesson?.date})`}
               </h2>
@@ -144,16 +225,23 @@ export default function AddLessonModal({
           </button>
         </div>
 
-        {mode === 'view' && initialLesson ? (
+        {schedule && <p className="lesson-schedule-reference">
+          По расписанию · {schedule.isoDate} · {schedule.slots[0].start}–{schedule.slots.at(-1).end} · {schedule.slots.length} ак. ч.
+        </p>}
+        {mode === 'match' ? (
+          <ScheduleSelection opening={scheduleOpening} lessons={existingLessons} selection={selection} onSelect={setSelection}
+            onBind={() => submit(() => onAction(base, { type: 'bindSchedule', lessonId: selection,
+              scheduleIntent: scheduleOpening.intent }), { label: 'Подтвердить привязку' })} />
+        ) : mode === 'view' && initialLesson ? (
           <div className="p-5 space-y-4">
             <div className="flex flex-wrap items-center gap-2">
               <span className="px-2.5 py-1 bg-emerald-100 dark:bg-emerald-500/20 text-emerald-900 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30 rounded-lg text-xs font-extrabold">
-                Тип: {initialLesson.type}
+                Тип: {viewed.type}
               </span>
               <span className="px-2.5 py-1 bg-[#EFECE6] dark:bg-[#181B20] text-stone-800 dark:text-zinc-200 border border-[#DED8CE] dark:border-[#323844] rounded-lg text-xs font-bold flex items-center gap-1.5">
-                {(initialLesson.hours || 2) === 2 ? 'Пара (2 ак. часа)' : 'Урок (1 ак. час)'}
+                {viewed.hours === 2 ? 'Пара (2 ак. часа)' : 'Урок (1 ак. час)'}
               </span>
-              {(initialLesson.type === 'ПР' || initialLesson.type === 'ЛАБ' || initialLesson.isSubgroupOnly) && (
+              {isSubgroupLesson(viewed) && (
                 <span className="px-2.5 py-1 bg-amber-100 dark:bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-500/30 rounded-lg text-xs font-bold">
                   Деление по подгруппам
                 </span>
@@ -164,9 +252,9 @@ export default function AddLessonModal({
               <div className="flex items-center gap-1.5 text-xs font-bold text-stone-600 dark:text-zinc-400 uppercase">
                 <span>Тема занятия</span>
               </div>
-              {initialLesson.topic ? (
+              {viewed.topic ? (
                 <p className="text-sm font-bold text-stone-900 dark:text-zinc-100 leading-relaxed whitespace-pre-wrap">
-                  {initialLesson.topic}
+                  {viewed.topic}
                 </p>
               ) : (
                 <p className="text-sm text-stone-400 dark:text-zinc-500 italic">Тема не указана</p>
@@ -177,14 +265,18 @@ export default function AddLessonModal({
               <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950 dark:text-amber-300 uppercase">
                 <span>Домашнее задание</span>
               </div>
-              {initialLesson.homework ? (
+              {viewed.homework ? (
                 <p className="text-sm font-semibold text-stone-900 dark:text-zinc-100 leading-relaxed whitespace-pre-wrap">
-                  {initialLesson.homework}
+                  {viewed.homework}
                 </p>
               ) : (
                 <p className="text-sm text-stone-400 dark:text-zinc-500 italic">Домашнее задание не задано</p>
               )}
             </div>
+
+            {onAction && current && snapshot.sheet && <LessonCompletion lesson={current} sheet={snapshot.sheet}
+              onAction={(command, label) => submit(() => onAction(base, { ...command, lessonId: current.id }),
+                { stayOpen: true, label })} />}
 
             {confirmDelete ? (
               <div className="p-4 bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-500/40 rounded-sm space-y-3">
@@ -257,6 +349,7 @@ export default function AddLessonModal({
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"
+                  disabled={Boolean(schedule)}
                   onClick={() => setFormData({ ...formData, hours: 2 })}
                   className={`p-3 rounded-sm border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     Number(formData.hours) === 2
@@ -272,6 +365,7 @@ export default function AddLessonModal({
 
                 <button
                   type="button"
+                  disabled={Boolean(schedule)}
                   onClick={() => setFormData({ ...formData, hours: 1 })}
                   className={`p-3 rounded-sm border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
                     Number(formData.hours) === 1
@@ -286,6 +380,8 @@ export default function AddLessonModal({
                 </button>
               </div>
             </div>
+            {mode === 'edit' && current?.hours === 2 && Number(formData.hours) === 1 &&
+              <p className="lesson-form-warning">При сохранении отметки за второй час будут удалены.</p>}
 
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -295,6 +391,7 @@ export default function AddLessonModal({
                   id="lesson-date" name="date"
                   value={formData.date}
                   onChange={handleChange}
+                  readOnly={Boolean(schedule)}
                   className="w-full px-3 py-2 bg-[#F3EFE8] dark:bg-[#181B20] border border-[#DED8CE] dark:border-[#323844] rounded-sm focus:ring-2 focus:ring-emerald-700 outline-none transition-all text-sm font-medium text-stone-900 dark:text-zinc-100"
                   required
                 />
@@ -305,8 +402,11 @@ export default function AddLessonModal({
                   id="lesson-type" name="type"
                   value={formData.type}
                   onChange={handleChange}
+                  disabled={Boolean(schedule?.type)}
+                  required
                   className="w-full px-3 py-2 bg-[#F3EFE8] dark:bg-[#181B20] border border-[#DED8CE] dark:border-[#323844] rounded-sm focus:ring-2 focus:ring-emerald-700 outline-none transition-all cursor-pointer text-sm font-medium text-stone-900 dark:text-zinc-100"
                 >
+                  {!formData.type && <option value="" disabled>Выберите тип</option>}
                   <option value="ЛЕК">Лекция (ЛЕК)</option>
                   <option value="ПР">Практика (ПР)</option>
                   <option value="ЛАБ">Лабораторная (ЛАБ)</option>
